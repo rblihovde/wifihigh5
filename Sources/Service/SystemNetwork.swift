@@ -36,15 +36,29 @@ enum SystemNetwork {
             return cfg
         }
 
-        if let global = SCDynamicStoreCopyValue(store, "State:/Network/Global/IPv4" as CFString) as? [String: Any] {
-            cfg.router = global["Router"] as? String
-            cfg.primaryInterface = global["PrimaryInterface"] as? String
+        let globalV4 = SCDynamicStoreCopyValue(
+            store, "State:/Network/Global/IPv4" as CFString) as? [String: Any]
+        cfg.primaryInterface = globalV4?["PrimaryInterface"] as? String
+        let primaryService = globalV4?["PrimaryService"] as? String
+        let serviceID: String? = {
+            if cfg.primaryInterface == interface, let primaryService { return primaryService }
+            return activeServiceID(for: interface, store: store)
+        }()
+
+        let serviceV4 = serviceID.flatMap {
+            SCDynamicStoreCopyValue(store, "State:/Network/Service/\($0)/IPv4" as CFString)
+                as? [String: Any]
         }
 
         let ifKey = "State:/Network/Interface/\(interface)/IPv4" as CFString
-        if let v4 = SCDynamicStoreCopyValue(store, ifKey) as? [String: Any] {
+        let interfaceV4 = SCDynamicStoreCopyValue(store, ifKey) as? [String: Any]
+        if let v4 = serviceV4 ?? interfaceV4 {
             cfg.ipv4 = (v4["Addresses"] as? [String])?.first
             cfg.subnetMask = (v4["SubnetMasks"] as? [String])?.first
+        }
+        cfg.router = serviceV4?["Router"] as? String
+        if cfg.router == nil, cfg.primaryInterface == interface {
+            cfg.router = globalV4?["Router"] as? String
         }
 
         let ifKey6 = "State:/Network/Interface/\(interface)/IPv6" as CFString
@@ -52,13 +66,33 @@ enum SystemNetwork {
             cfg.ipv6 = (v6["Addresses"] as? [String]) ?? []
         }
 
-        if let dns = SCDynamicStoreCopyValue(store, "State:/Network/Global/DNS" as CFString) as? [String: Any] {
+        let serviceDNS = serviceID.flatMap {
+            SCDynamicStoreCopyValue(store, "State:/Network/Service/\($0)/DNS" as CFString)
+                as? [String: Any]
+        }
+        let globalDNS = cfg.primaryInterface == interface
+            ? SCDynamicStoreCopyValue(store, "State:/Network/Global/DNS" as CFString) as? [String: Any]
+            : nil
+        if let dns = serviceDNS ?? globalDNS {
             cfg.dnsServers = (dns["ServerAddresses"] as? [String]) ?? []
             cfg.searchDomains = (dns["SearchDomains"] as? [String]) ?? []
         }
 
-        if let dhcp = SCDynamicStoreCopyDHCPInfo(store, nil) {
+        let dhcp: CFDictionary? = {
+            if let serviceID {
+                return SCDynamicStoreCopyDHCPInfo(store, serviceID as CFString)
+            }
+            if cfg.primaryInterface == interface {
+                return SCDynamicStoreCopyDHCPInfo(store, nil)
+            }
+            return nil
+        }()
+        if let dhcp {
             cfg.leaseStart = DHCPInfoGetLeaseStartTime(dhcp) as Date?
+            if cfg.router == nil,
+               let routerData = DHCPInfoGetOptionData(dhcp, 3) as Data?, routerData.count >= 4 {
+                cfg.router = routerData.prefix(4).map(String.init).joined(separator: ".")
+            }
             if let serverData = DHCPInfoGetOptionData(dhcp, 54) as Data?, serverData.count == 4 {
                 cfg.dhcpServer = serverData.map(String.init).joined(separator: ".")
             }
@@ -70,6 +104,30 @@ enum SystemNetwork {
 
         cfg.activeMAC = macAddress(for: interface)
         return cfg
+    }
+
+    /// Finds the active network service backed by a BSD interface. This avoids
+    /// combining en0's address with a VPN or Ethernet service's global router.
+    private static func activeServiceID(for interface: String,
+                                        store: SCDynamicStore) -> String? {
+        let pattern = "Setup:/Network/Service/.*/Interface" as CFString
+        guard let keys = SCDynamicStoreCopyKeyList(store, pattern) as? [String] else { return nil }
+
+        var fallback: String?
+        for key in keys {
+            guard let settings = SCDynamicStoreCopyValue(store, key as CFString) as? [String: Any],
+                  settings["DeviceName"] as? String == interface else { continue }
+            let parts = key.split(separator: "/")
+            guard parts.count >= 5 else { continue }
+            let serviceID = String(parts[3])
+            fallback = fallback ?? serviceID
+            let stateKey = "State:/Network/Service/\(serviceID)/IPv4" as CFString
+            if let state = SCDynamicStoreCopyValue(store, stateKey) as? [String: Any],
+               !(state["Addresses"] as? [String] ?? []).isEmpty {
+                return serviceID
+            }
+        }
+        return fallback
     }
 
     /// Link-layer address of the named interface, via getifaddrs.

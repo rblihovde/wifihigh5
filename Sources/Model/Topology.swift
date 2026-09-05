@@ -168,6 +168,11 @@ enum TopologyBuilder {
         }
         let gatewayEntry = gatewayIP.flatMap { g in interfaceARP.first { $0.ip == g } }
         let apBSSID = sample?.bssid?.lowercased()
+        let alternatePrimaryInterface: String? = {
+            guard let activeInterface, let primary = ip.primaryInterface,
+                  primary != activeInterface else { return nil }
+            return primary
+        }()
 
         // Router and access point in one box is the common small-site case, and
         // the MAC layout is what reveals it.
@@ -178,13 +183,21 @@ enum TopologyBuilder {
 
         // MARK: Internet
 
+        var internetFacts = [
+            Fact(label: "Reachability", value: pinger.enabled ? "Gateway only" : "Not tested", detail: .primary),
+            Fact(label: "Why", value: "This app only ever talks to your own router, so anything upstream is outside what it can honestly report.", detail: .secondary, inspectorOnly: true)
+        ]
+        if let primary = alternatePrimaryInterface {
+            internetFacts.insert(
+                Fact(label: "Default route", value: "Uses \(primary), outside this Wi-Fi path",
+                     detail: .primary, tint: .orange, confidence: .observed,
+                     source: "macOS network configuration",
+                     observedAt: ipObservedAt, staleAfter: 15), at: 0)
+        }
         map.nodes.append(MapNode(
             id: "internet", kind: .internet, title: "Internet",
-            subtitle: "Beyond the gateway",
-            facts: [
-                Fact(label: "Reachability", value: pinger.enabled ? "Gateway only" : "Not tested", detail: .primary),
-                Fact(label: "Why", value: "This app only ever talks to your own router, so anything upstream is outside what it can honestly report.", detail: .secondary, inspectorOnly: true)
-            ],
+            subtitle: "Beyond the Wi-Fi gateway",
+            facts: internetFacts,
             confidence: .unobserved, column: 0, row: 0))
 
         // MARK: Router
@@ -496,8 +509,8 @@ enum TopologyBuilder {
             guard let localAddress = ip.ipv4, let mask = ip.subnetMask else { return [] }
             var byAddress: [String: ARPEntry] = [:]
             for entry in interfaceARP where
-                entry.ip != gatewayIP && entry.ip != localAddress &&
-                ARPTable.isOnSubnet(entry.ip, localAddress: localAddress, mask: mask) {
+                entry.isUnicast && entry.ip != gatewayIP && entry.ip != localAddress &&
+                ARPTable.isHostOnSubnet(entry.ip, localAddress: localAddress, mask: mask) {
                 byAddress[entry.ip] = entry
             }
             return byAddress.values.sorted {
@@ -559,6 +572,9 @@ enum TopologyBuilder {
         }
         if !ip.ipv6.isEmpty {
             map.notes.append("The device group currently reflects the IPv4 ARP cache only; IPv6 neighbours are not included.")
+        }
+        if let primary = alternatePrimaryInterface, let activeInterface {
+            map.notes.append("macOS reports \(primary) as the default route. This diagram shows the local Wi-Fi path on \(activeInterface); a VPN or another adapter may carry Internet traffic.")
         }
         return map
     }

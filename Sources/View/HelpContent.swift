@@ -253,9 +253,10 @@ enum HelpContent {
         HelpTopic(
             term: "Reading the network map",
             category: .networkMap,
-            short: "A schematic of the path your traffic takes, drawn only from what this Mac can see.",
+            short: "A schematic of the current Wi-Fi path, drawn only from what this Mac can see.",
             body: [
-                "The map runs from this Mac at the bottom, through the access point serving it, to the router, and out to the internet. It is the current connection plus local evidence, not a complete network inventory. Zoom in to reveal more, click a node to see all of its facts and sources, or use Jump To when the drawing is large.",
+                "The map runs from this Mac at the bottom, through the access point serving it, to the Wi-Fi subnet's router and then to an explicitly untested upstream. It is the current Wi-Fi path plus local evidence, not a complete network inventory. Zoom in to reveal more, click a node to see all of its facts and sources, or use Jump To when the drawing is large.",
+                "If a VPN, Ethernet adapter or another service owns the Mac's default route, the map calls that out. It continues to show the local Wi-Fi path for onsite diagnosis without claiming that all Internet traffic follows it.",
                 "The important thing is what the map refuses to guess. Line style carries confidence, and anything this Mac cannot observe is drawn as unobserved rather than quietly left out — a diagram that looks complete when it isn't is worse than no diagram.",
                 "Facts gathered at different times show their source and age in the inspector. Nearby access-point readings are snapshots from the last user-requested scan; refresh them after moving around a site."
             ],
@@ -272,6 +273,7 @@ enum HelpContent {
             body: [
                 "Manufacturers assign consecutive hardware addresses to the interfaces of a single chassis. When the router's MAC and the access point's BSSID share a vendor prefix and sit within a few addresses of each other, they are almost certainly the same physical device.",
                 "Router and access point remain separate logical nodes so their measured roles stay clear. The link between them is solid amber and labelled Inferred, and the access-point inspector shows the addresses and method so you can judge the reasoning yourself.",
+                "Software-assigned and multicast addresses are excluded from this inference because adjacency in those address ranges says nothing reliable about physical hardware.",
                 "On a larger site the link is not assumed. The map shows an unobserved path between the roles instead — that gap is where switching and controller infrastructure may live."
             ]
         ),

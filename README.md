@@ -19,11 +19,12 @@ change rather than something you have to dig out of a log. Dashed vertical
 markers show each transition. Hovering anywhere gives a readout for that instant.
 Optional overlays put the noise floor and the transmit rate on the same plot.
 
-**Network Map** — a vector schematic of the current connection path, from this
-Mac through the access point to the router and out, plus clearly bounded local
-evidence. It is not presented as a full network inventory. Pan and zoom; each
-node reveals more as you get closer, clicking one shows its facts, sources and
-ages, and Jump To keeps a large drawing navigable. See below.
+**Network Map** — a vector schematic of the current Wi-Fi path, from this Mac
+through the access point to the local router and an explicitly untested
+upstream, plus clearly bounded local evidence. It is not presented as a full
+network inventory. Pan and zoom; each node reveals more as you get closer,
+clicking one shows its facts, sources and ages, and Jump To keeps a large
+drawing navigable. See below.
 
 **Access Points** — every AP this Mac has associated with, searchable, with the
 signal range seen at each and the nickname, site and notes you gave it.
@@ -75,6 +76,10 @@ What makes it useful is what it refuses to guess. Line style carries confidence:
 | Solid amber | Inferred — derived from measured facts, reasoning shown on the node |
 | Grey dashed | Not observable — genuinely invisible from here |
 
+If a VPN, Ethernet adapter or another service owns the default route, the map
+calls that out rather than claiming all Internet traffic follows the Wi-Fi
+gateway. It still shows the local Wi-Fi path that matters for onsite diagnosis.
+
 So the internet node is always dashed: the app only ever talks to your own
 router, and it will not imply it tested anything upstream. Because switches work
 below the layer this Mac can see, the map inserts an explicit unobserved segment
@@ -85,7 +90,8 @@ One inference it does make: when the router's MAC and the access point's BSSID
 share a vendor prefix and sit within a few addresses of each other, they are
 likely one physical box. The logical router and access-point roles remain
 separate, joined by a solid amber Inferred link, and the inspector shows the
-evidence so you can judge the reasoning.
+evidence so you can judge the reasoning. Software-assigned and multicast
+addresses are excluded because adjacency there is not hardware evidence.
 
 Hardware vendors are resolved against the IEEE MAC registry, which ships inside
 the app. That is what lets the map say your gateway is a WNC Corporation box

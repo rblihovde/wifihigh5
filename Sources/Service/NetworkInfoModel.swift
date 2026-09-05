@@ -9,12 +9,17 @@ final class NetworkInfoModel: ObservableObject {
 
     private var timer: Timer?
     private var interfaceName = "en0"
+    private var refreshGeneration: UInt = 0
 
     init() { refresh() }
 
     func bind(interface: String) {
         guard interface != interfaceName else { return }
         interfaceName = interface
+        // Do not display or ping the previous adapter's gateway while the new
+        // interface read is in flight.
+        config = IPConfig()
+        lastRefresh = nil
         refresh()
     }
 
@@ -28,10 +33,14 @@ final class NetworkInfoModel: ObservableObject {
     }
 
     func refresh() {
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
         let name = interfaceName
         DispatchQueue.global(qos: .utility).async {
             let cfg = SystemNetwork.read(interface: name)
             Task { @MainActor in
+                guard self.refreshGeneration == generation,
+                      self.interfaceName == name else { return }
                 self.config = cfg
                 self.lastRefresh = Date()
             }

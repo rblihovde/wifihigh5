@@ -17,6 +17,16 @@ struct ARPEntry: Hashable {
         return byte & 0x02 != 0
     }
 
+    /// Multicast and broadcast cache rows describe delivery groups rather than
+    /// devices and must not appear in a host count.
+    var isUnicast: Bool {
+        let parts = mac.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 6 else { return false }
+        let bytes = parts.compactMap { UInt8($0, radix: 16) }
+        guard bytes.count == 6, bytes.contains(where: { $0 != 0 }) else { return false }
+        return bytes[0] & 0x01 == 0
+    }
+
     /// The vendor prefix. Shown as-is rather than resolved to a name: without a
     /// local OUI registry any vendor label would be a guess, and a wrong one in
     /// front of a client is worse than none.
@@ -81,11 +91,12 @@ enum ARPTable {
     /// interfaces of one chassis, so this is strong evidence that a router and
     /// an access point are the same physical box rather than two devices.
     static func likelySameChassis(_ a: String, _ b: String) -> Bool {
-        let lhs = a.split(separator: ":"), rhs = b.split(separator: ":")
-        guard lhs.count == 6, rhs.count == 6 else { return false }
+        guard let lhs = macBytes(a), let rhs = macBytes(b) else { return false }
+        // Locally administered or multicast addresses are software/network
+        // constructs; adjacency says nothing reliable about shared hardware.
+        guard lhs[0] & 0x03 == 0, rhs[0] & 0x03 == 0 else { return false }
         guard lhs.prefix(5) == rhs.prefix(5) else { return false }
-        guard let l = UInt8(lhs[5], radix: 16), let r = UInt8(rhs[5], radix: 16) else { return false }
-        return abs(Int(l) - Int(r)) <= 8
+        return abs(Int(lhs[5]) - Int(rhs[5])) <= 8
     }
 
     /// True when two IPv4 addresses belong to the same subnet. This keeps a
@@ -98,6 +109,18 @@ enum ARPTable {
         return candidateValue & maskValue == localValue & maskValue
     }
 
+    /// True for a usable host address on the subnet, excluding the network and
+    /// directed-broadcast addresses at either end of the range.
+    static func isHostOnSubnet(_ candidate: String, localAddress: String, mask: String) -> Bool {
+        guard let candidateValue = ipv4Value(candidate),
+              let localValue = ipv4Value(localAddress),
+              let maskValue = ipv4Value(mask) else { return false }
+        let network = localValue & maskValue
+        let broadcast = network | ~maskValue
+        return candidateValue & maskValue == network &&
+               candidateValue != network && candidateValue != broadcast
+    }
+
     private static func ipv4Value(_ address: String) -> UInt32? {
         let parts = address.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 4 else { return nil }
@@ -107,5 +130,13 @@ enum ARPTable {
             result = (result << 8) | UInt32(octet)
         }
         return result
+    }
+
+    private static func macBytes(_ address: String) -> [UInt8]? {
+        let parts = address.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 6 else { return nil }
+        let bytes = parts.compactMap { UInt8($0, radix: 16) }
+        guard bytes.count == 6, bytes.contains(where: { $0 != 0 }) else { return nil }
+        return bytes
     }
 }

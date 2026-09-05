@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A schematic of the paths this Mac's traffic actually takes.
+/// A schematic of the current Wi-Fi path and the local evidence around it.
 ///
 /// Drawn as vectors on a drafting lattice: connectors run orthogonally, line
 /// weights stay constant on screen however far you zoom, and each node reveals
@@ -92,7 +92,7 @@ struct NetworkMapView: View {
                     }
                     legend
                         .padding(12)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                         .allowsHitTesting(false)
                 }
                 .clipped()
@@ -174,11 +174,11 @@ struct NetworkMapView: View {
 
     private var toolbar: some View {
         HStack(spacing: 10) {
-            Text("CURRENT CONNECTION")
+            Text("CURRENT WI-FI PATH")
                 .font(.system(size: 10, weight: .semibold)).tracking(0.6)
                 .foregroundStyle(.secondary)
                 .fixedSize()
-                .help("The current connection path and locally observed context — not a full network inventory")
+                .help("The current Wi-Fi path and locally observed context — not a full network inventory")
 
             Pill(text: detailName, tint: .blue)
                 .fixedSize()
@@ -200,7 +200,7 @@ struct NetworkMapView: View {
                 scanner.scan(currentSSID: monitor.current?.ssid,
                              currentBSSID: monitor.current?.bssid)
             } label: {
-                Label(scanner.isScanning ? "Scanning…" : (scanner.results.isEmpty ? "Find APs" : "Refresh APs"),
+                Label(scanner.isScanning ? "Scanning…" : "Scan APs",
                       systemImage: scanner.isScanning ? "dot.radiowaves.left.and.right" : "dot.radiowaves.up.forward")
             }
             .controlSize(.small)

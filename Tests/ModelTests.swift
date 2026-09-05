@@ -230,6 +230,17 @@ private func testTopology(databaseURL: URL) {
     expect("missing BSSID does not disconnect the AP from the path",
            hiddenMap.edges.contains { $0.id == "fabric-ap" })
 
+    var vpnConfig = config
+    vpnConfig.primaryInterface = "utun3"
+    let vpnMap = TopologyBuilder.build(
+        sample: hiddenBSSID, status: .connected, ip: vpnConfig, arp: [router], scan: [],
+        ipObservedAt: now, arpObservedAt: now, scanObservedAt: nil,
+        registry: registry, pinger: pinger, vendors: vendors)
+    expect("another default interface is disclosed on the upstream node",
+           vpnMap.node("internet")?.facts.contains { $0.label == "Default route" && $0.value.contains("utun3") } == true)
+    expect("another default interface adds a plain-language scope note",
+           vpnMap.notes.contains { $0.contains("default route") && $0.contains("local Wi-Fi path") })
+
     let combined = sample(rssi: -51, bssid: "00:aa:bb:cc:dd:17")
     let combinedMap = TopologyBuilder.build(
         sample: combined, status: .connected, ip: config, arp: [router], scan: [],
@@ -247,7 +258,8 @@ private func testTopology(databaseURL: URL) {
         ARPEntry(ip: "192.168.10.30", mac: "00:00:5e:00:00:01", interfaceName: "en0"),
         ARPEntry(ip: "192.168.10.31", mac: "00:00:5e:00:00:02", interfaceName: "en1"),
         ARPEntry(ip: "10.0.0.5", mac: "00:00:5e:00:00:03", interfaceName: "en0"),
-        ARPEntry(ip: "192.168.10.20", mac: "11:22:33:44:55:66", interfaceName: "en0")
+        ARPEntry(ip: "192.168.10.20", mac: "11:22:33:44:55:66", interfaceName: "en0"),
+        ARPEntry(ip: "192.168.10.255", mac: "ff:ff:ff:ff:ff:ff", interfaceName: "en0")
     ]
     let scopedMap = TopologyBuilder.build(
         sample: combined, status: .connected, ip: config, arp: neighbours, scan: [],
@@ -297,8 +309,28 @@ private func testTopology(databaseURL: URL) {
            ARPTable.isOnSubnet("192.168.10.200", localAddress: "192.168.10.20", mask: "255.255.255.0"))
     expect("different /24 subnet rejected",
            !ARPTable.isOnSubnet("192.168.11.20", localAddress: "192.168.10.20", mask: "255.255.255.0"))
+    expect("directed broadcast is not a subnet host",
+           !ARPTable.isHostOnSubnet("192.168.10.255", localAddress: "192.168.10.20", mask: "255.255.255.0"))
+    expect("network address is not a subnet host",
+           !ARPTable.isHostOnSubnet("192.168.10.0", localAddress: "192.168.10.20", mask: "255.255.255.0"))
+    expect("ordinary local address is a subnet host",
+           ARPTable.isHostOnSubnet("192.168.10.30", localAddress: "192.168.10.20", mask: "255.255.255.0"))
+    expect("broadcast MAC is not a device",
+           !ARPEntry(ip: "192.168.10.255", mac: "ff:ff:ff:ff:ff:ff").isUnicast)
+    expect("zero MAC is not a device",
+           !ARPEntry(ip: "192.168.10.2", mac: "00:00:00:00:00:00").isUnicast)
     expect("malformed IPv4 rejected",
            !ARPTable.isOnSubnet("192.168.10.999", localAddress: "192.168.10.20", mask: "255.255.255.0"))
+    expect("universal adjacent MACs support a chassis inference",
+           ARPTable.likelySameChassis("00:AA:BB:CC:DD:10", "00:aa:bb:cc:dd:17"))
+    expect("locally administered MACs never support a chassis inference",
+           !ARPTable.likelySameChassis("02:aa:bb:cc:dd:10", "02:aa:bb:cc:dd:17"))
+    expect("multicast MACs never support a chassis inference",
+           !ARPTable.likelySameChassis("01:aa:bb:cc:dd:10", "01:aa:bb:cc:dd:17"))
+    expect("malformed MACs never support a chassis inference",
+           !ARPTable.likelySameChassis("00:zz:bb:cc:dd:10", "00:zz:bb:cc:dd:17"))
+    expect("zero MACs never support a chassis inference",
+           !ARPTable.likelySameChassis("00:00:00:00:00:00", "00:00:00:00:00:01"))
 }
 
 @main

@@ -58,7 +58,7 @@ fi
 printf 'APPL????' > "${STAGING_BUNDLE}/Contents/PkgInfo"
 
 echo "==> Signing as: ${IDENTITY}"
-SIGN_ARGS=(--force --deep --sign "${IDENTITY}" --options runtime
+SIGN_ARGS=(--force --sign "${IDENTITY}" --options runtime
            --entitlements Resources/WiFiSignalTester.entitlements)
 if [ "${IDENTITY}" != "-" ]; then SIGN_ARGS+=(--timestamp); fi
 codesign "${SIGN_ARGS[@]}" "${STAGING_BUNDLE}"

@@ -8,11 +8,14 @@ import SwiftUI
 struct SignalChart: View {
     var samples: [WiFiSample]
     var roamEvents: [RoamEvent]
+    var waypoints: [Waypoint] = []
     var registry: APRegistry
     var window: TimeInterval?
     var referenceDate: Date
     var showNoise: Bool
     var showRate: Bool
+    /// Poll cadence, used to tell a real sampling gap from normal jitter.
+    var sampleInterval: Double = 1.0
 
     @State private var hoverPoint: CGPoint?
 
@@ -49,10 +52,12 @@ struct SignalChart: View {
                 Canvas { ctx, _ in
                     drawQualityBands(ctx, plot)
                     drawGrid(ctx, plot)
+                    drawGaps(ctx, plot)
                     drawRoamMarkers(ctx, plot)
                     if showRate { drawRateTrace(ctx, plot) }
                     if showNoise { drawNoiseTrace(ctx, plot) }
                     drawSignalTrace(ctx, plot)
+                    drawWaypoints(ctx, plot)
                     drawLiveDot(ctx, plot)
                     drawTimeAxis(ctx, plot)
                     if let h = hoverPoint { drawCrosshair(ctx, plot, at: h) }
@@ -155,17 +160,51 @@ struct SignalChart: View {
     }
 
     /// Splits the trace into runs of consecutive samples served by one AP.
+    /// True when two consecutive samples are too far apart to be continuous —
+    /// the Mac slept, sampling was paused, or the app was suspended. Drawing
+    /// straight through such a gap would assert data that was never measured.
+    private func isGap(_ a: WiFiSample, _ b: WiFiSample) -> Bool {
+        b.time.timeIntervalSince(a.time) > Swift.max(sampleInterval * 3, 5)
+    }
+
+    /// Spans with no measurements, for shading behind the trace.
+    private func gaps() -> [(start: Date, end: Date)] {
+        guard samples.count > 1 else { return [] }
+        var out: [(start: Date, end: Date)] = []
+        for i in 1..<samples.count where isGap(samples[i - 1], samples[i]) {
+            out.append((start: samples[i - 1].time, end: samples[i].time))
+        }
+        return out
+    }
+
+    private func drawGaps(_ ctx: GraphicsContext, _ plot: CGRect) {
+        for gap in gaps() {
+            let x0 = x(for: gap.start, in: plot), x1 = x(for: gap.end, in: plot)
+            guard x1 > plot.minX, x0 < plot.maxX else { continue }
+            let rect = CGRect(x: Swift.max(x0, plot.minX), y: plot.minY,
+                              width: Swift.min(x1, plot.maxX) - Swift.max(x0, plot.minX),
+                              height: plot.height)
+            ctx.fill(Path(rect), with: .color(.gray.opacity(0.16)))
+            if rect.width > 34 {
+                let t = Text("no data").font(.system(size: 8.5)).foregroundStyle(.secondary)
+                ctx.draw(ctx.resolve(t), at: CGPoint(x: rect.midX, y: plot.minY + 9), anchor: .center)
+            }
+        }
+    }
+
     private func segments() -> [(key: APKey, points: [WiFiSample])] {
         var out: [(key: APKey, points: [WiFiSample])] = []
         for s in samples {
             // Append through the subscript so the run grows in place; copying the
             // tuple out and back made this quadratic in the length of a run.
-            if !out.isEmpty, out[out.count - 1].key == s.apKey {
+            let continuous = out.last?.points.last.map { !isGap($0, s) } ?? false
+            if !out.isEmpty, out[out.count - 1].key == s.apKey, continuous {
                 out[out.count - 1].points.append(s)
             } else {
-                // Repeat the previous sample so segments join without a gap.
+                // Bridge to the previous run so AP changes join seamlessly, but
+                // never across a gap — there the trace must actually break.
                 var seed: [WiFiSample] = []
-                if let prev = out.last?.points.last { seed.append(prev) }
+                if continuous, let prev = out.last?.points.last { seed.append(prev) }
                 seed.append(s)
                 out.append((key: s.apKey, points: seed))
             }
@@ -198,14 +237,26 @@ struct SignalChart: View {
     }
 
     private func drawNoiseTrace(_ ctx: GraphicsContext, _ plot: CGRect) {
-        let noiseSamples = samples.compactMap { s -> (Date, Int)? in
-            s.validNoise.map { (s.time, $0) }
+        // Split on gaps and on samples the driver gave no noise floor for, so
+        // the dashed line never spans a stretch that was not measured.
+        var runs: [[(Date, Int)]] = []
+        var previous: WiFiSample?
+        for s in samples {
+            defer { previous = s }
+            guard let noise = s.validNoise else { continue }
+            let continuous = previous.map { !isGap($0, s) } ?? false
+            if continuous, !runs.isEmpty, previous?.validNoise != nil {
+                runs[runs.count - 1].append((s.time, noise))
+            } else {
+                runs.append([(s.time, noise)])
+            }
         }
-        guard noiseSamples.count > 1 else { return }
-        var p = Path()
-        p.addLines(noiseSamples.map { CGPoint(x: x(for: $0.0, in: plot), y: y(for: Double($0.1), in: plot)) })
-        ctx.stroke(p, with: .color(.secondary.opacity(0.65)),
-                   style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+        for run in runs where run.count > 1 {
+            var p = Path()
+            p.addLines(run.map { CGPoint(x: x(for: $0.0, in: plot), y: y(for: Double($0.1), in: plot)) })
+            ctx.stroke(p, with: .color(.secondary.opacity(0.65)),
+                       style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+        }
     }
 
     /// TX rate on its own implicit scale, for spotting rate collapse.
@@ -233,6 +284,40 @@ struct SignalChart: View {
             ctx.stroke(p, with: .color(c.opacity(0.75)), style: StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
             let dot = Path(ellipseIn: CGRect(x: px - 3.5, y: plot.minY - 7, width: 7, height: 7))
             ctx.fill(dot, with: .color(c))
+        }
+    }
+
+    /// Places the operator marked, pinned along the bottom of the plot so they
+    /// read as annotations on the trace rather than competing with it.
+    private func drawWaypoints(_ ctx: GraphicsContext, _ plot: CGRect) {
+        let (start, end) = timeRange
+        var lastLabelEnd: CGFloat = -.greatestFiniteMagnitude
+        for w in waypoints where w.time >= start && w.time <= end {
+            let px = x(for: w.time, in: plot)
+            guard px >= plot.minX, px <= plot.maxX else { continue }
+
+            var line = Path()
+            line.move(to: CGPoint(x: px, y: plot.minY))
+            line.addLine(to: CGPoint(x: px, y: plot.maxY))
+            ctx.stroke(line, with: .color(.blue.opacity(0.45)),
+                       style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+
+            var pin = Path()
+            pin.move(to: CGPoint(x: px, y: plot.maxY - 7))
+            pin.addLine(to: CGPoint(x: px - 4, y: plot.maxY - 1))
+            pin.addLine(to: CGPoint(x: px + 4, y: plot.maxY - 1))
+            pin.closeSubpath()
+            ctx.fill(pin, with: .color(.blue))
+
+            // Skip labels that would collide with the previous one.
+            let text = Text(w.label).font(.system(size: 9, weight: .medium)).foregroundStyle(.blue)
+            let resolved = ctx.resolve(text)
+            let width = resolved.measure(in: CGSize(width: 120, height: 20)).width
+            let left = px - width / 2
+            if left > lastLabelEnd + 6, left > plot.minX, px + width / 2 < plot.maxX {
+                ctx.draw(resolved, at: CGPoint(x: px, y: plot.maxY - 14), anchor: .center)
+                lastLabelEnd = left + width
+            }
         }
     }
 

@@ -2,8 +2,10 @@ import SwiftUI
 
 enum Pane: String, CaseIterable, Identifiable {
     case live = "Live Monitor"
+    case networkMap = "Network Map"
     case accessPoints = "Access Points"
     case roamLog = "Connection Changes"
+    case surveys = "Walkthroughs"
     case nearby = "Nearby Networks"
     case diagnostics = "Diagnostics"
 
@@ -12,8 +14,10 @@ enum Pane: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .live:         return "waveform.path.ecg"
+        case .networkMap:   return "point.topleft.down.to.point.bottomright.curvepath"
         case .accessPoints: return "wifi.router"
         case .roamLog:      return "arrow.left.arrow.right"
+        case .surveys:      return "figure.walk"
         case .nearby:       return "dot.radiowaves.up.forward"
         case .diagnostics:  return "stethoscope"
         }
@@ -25,6 +29,7 @@ struct RootView: View {
     @EnvironmentObject var registry: APRegistry
     @EnvironmentObject var netInfo: NetworkInfoModel
     @EnvironmentObject var pinger: GatewayPinger
+    @EnvironmentObject var surveyUI: SurveyUI
     @Binding var confirmClearSession: Bool
 
     // Remembered across launches so the app reopens where you left off.
@@ -48,8 +53,10 @@ struct RootView: View {
             Group {
                 switch pane.wrappedValue {
                 case .live:         LiveView()
+                case .networkMap:   NetworkMapView()
                 case .accessPoints: AccessPointsView()
                 case .roamLog:      RoamLogView()
+                case .surveys:      SurveysView()
                 case .nearby:       NearbyView()
                 case .diagnostics:  DiagnosticsView()
                 }
@@ -63,6 +70,9 @@ struct RootView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("The graph and connection-change history will be discarded. Saved access point names are not affected.")
+        }
+        .sheet(item: $surveyUI.pendingWaypoint) { pending in
+            WaypointCaptureSheet(time: pending.time)
         }
         .onAppear { netInfo.start() }
         .onChange(of: monitor.current?.interfaceName) { _, name in
@@ -120,6 +130,13 @@ struct RootView: View {
 
     @ToolbarContentBuilder
     private var toolbarItems: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button { surveyUI.captureWaypoint() } label: {
+                Label("Mark Spot", systemImage: "mappin")
+            }
+            .disabled(monitor.current == nil)
+            .help("Mark where you are right now (⌘M)")
+        }
         ToolbarItem(placement: .primaryAction) {
             Button { monitor.toggle() } label: {
                 Label(monitor.isRunning ? "Pause" : "Resume",

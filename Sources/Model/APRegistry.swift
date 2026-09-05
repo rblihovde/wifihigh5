@@ -84,6 +84,11 @@ final class APRegistry: ObservableObject {
         return "Unknown AP"
     }
 
+    /// Palette slot for an AP, so exports can reproduce the on-screen colour.
+    func colorIndexHint(for key: APKey) -> Int {
+        records[key.raw]?.colorOverride ?? key.colorIndex
+    }
+
     var allRecords: [APRecord] {
         records.values.sorted { $0.lastSeen > $1.lastSeen }
     }

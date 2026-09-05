@@ -26,6 +26,9 @@ struct WiFiSignalTesterApp: App {
     @StateObject private var pinger = GatewayPinger()
     @StateObject private var scanner = Scanner()
     @StateObject private var gate = LocationGate()
+    @StateObject private var store = SurveyStore()
+    @StateObject private var surveyUI = SurveyUI()
+    @StateObject private var vendors = VendorDatabase()
     @State private var confirmClearSession = false
 
     init() {
@@ -43,6 +46,9 @@ struct WiFiSignalTesterApp: App {
                 .environmentObject(pinger)
                 .environmentObject(scanner)
                 .environmentObject(gate)
+                .environmentObject(store)
+                .environmentObject(surveyUI)
+                .environmentObject(vendors)
                 .frame(minWidth: 940, minHeight: 620)
                 .task {
                     appDelegate.onTerminate = { registry.saveNow() }
@@ -51,6 +57,21 @@ struct WiFiSignalTesterApp: App {
         .defaultSize(width: 1180, height: 800)
         .commands {
             CommandGroup(replacing: .newItem) { }
+            HelpCommands()
+            CommandMenu("Survey") {
+                Button("Mark This Spot") { surveyUI.captureWaypoint() }
+                    .keyboardShortcut("m", modifiers: .command)
+                    .disabled(monitor.current == nil)
+                Divider()
+                Button(monitor.isRecording ? "Stop Recording" : "Start Recording…") {
+                    if monitor.isRecording {
+                        if let session = monitor.finishRecording() { store.save(session) }
+                    } else {
+                        monitor.startRecording(name: "", site: "")
+                    }
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+            }
             CommandMenu("Monitor") {
                 Button(monitor.isRunning ? "Pause Sampling" : "Resume Sampling") { monitor.toggle() }
                     .keyboardShortcut("p", modifiers: .command)
@@ -77,7 +98,14 @@ struct WiFiSignalTesterApp: App {
                 .environmentObject(monitor)
         }
         .menuBarExtraStyle(.window)
+
+        Window("WiFi Signal Tester Help", id: Self.helpWindowID) {
+            HelpView()
+        }
+        .defaultSize(width: 900, height: 620)
     }
+
+    static let helpWindowID = "help"
 }
 
 /// Compact live readout that sits in the menu bar while you walk a site.
@@ -170,6 +198,23 @@ struct MenuBarPanel: View {
                     Text(unit).font(.system(size: 9)).foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+}
+
+
+/// Help lives in its own scene, so the menu item needs the window-opening
+/// action from the environment — available to a `Commands` type but not to
+/// `App` itself.
+struct HelpCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .help) {
+            Button("WiFi Signal Tester Help") {
+                openWindow(id: WiFiSignalTesterApp.helpWindowID)
+            }
+            .keyboardShortcut("?", modifiers: .command)
         }
     }
 }

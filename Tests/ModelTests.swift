@@ -1,0 +1,264 @@
+import Foundation
+
+// A tiny harness rather than XCTest: the app is built by swiftc directly, and
+// this keeps `./run-tests.sh` a single command with no project restructuring.
+// These cover the arithmetic whose output ends up in front of a client.
+
+private var checks = 0
+private var failures: [String] = []
+
+private func expect(_ label: String, _ condition: Bool) {
+    checks += 1
+    if !condition { failures.append(label) }
+}
+
+private func expectEqual<T: Equatable>(_ label: String, _ actual: T, _ expected: T) {
+    checks += 1
+    if actual != expected {
+        failures.append("\(label) — expected \(expected), got \(actual)")
+    }
+}
+
+private func sample(rssi: Int, noise: Int = -90, bssid: String? = "aa:bb:cc:dd:ee:ff",
+                    ssid: String? = "Net", channel: Int = 36, band: Int = 2,
+                    at offset: TimeInterval = 0, from base: Date = Date(timeIntervalSince1970: 1_700_000_000)) -> WiFiSample {
+    WiFiSample(time: base.addingTimeInterval(offset), ssid: ssid, bssid: bssid,
+               rssi: rssi, noise: noise, txRate: 866, txPower: 20,
+               channel: channel, channelWidthRaw: 3, bandRaw: band, phyRaw: 6,
+               securityRaw: 4, countryCode: "US", interfaceName: "en0",
+               hardwareAddress: "11:22:33:44:55:66")
+}
+
+// MARK: Signal quality thresholds
+
+private func testSignalQuality() {
+    expectEqual("rssi -40 excellent", SignalQuality(rssi: -40), .excellent)
+    expectEqual("rssi -50 boundary is excellent", SignalQuality(rssi: -50), .excellent)
+    expectEqual("rssi -51 good", SignalQuality(rssi: -51), .good)
+    expectEqual("rssi -60 boundary is good", SignalQuality(rssi: -60), .good)
+    expectEqual("rssi -61 fair", SignalQuality(rssi: -61), .fair)
+    expectEqual("rssi -67 boundary is fair", SignalQuality(rssi: -67), .fair)
+    expectEqual("rssi -68 weak", SignalQuality(rssi: -68), .weak)
+    expectEqual("rssi -75 boundary is weak", SignalQuality(rssi: -75), .weak)
+    expectEqual("rssi -76 poor", SignalQuality(rssi: -76), .poor)
+
+    expectEqual("snr 45 excellent", SignalQuality(snr: 45), .excellent)
+    expectEqual("snr 40 boundary excellent", SignalQuality(snr: 40), .excellent)
+    expectEqual("snr 39 good", SignalQuality(snr: 39), .good)
+    expectEqual("snr 25 boundary good", SignalQuality(snr: 25), .good)
+    expectEqual("snr 24 fair", SignalQuality(snr: 24), .fair)
+    expectEqual("snr 14 weak", SignalQuality(snr: 14), .weak)
+    expectEqual("snr 9 poor", SignalQuality(snr: 9), .poor)
+
+    expect("quality is ordered", SignalQuality.poor < SignalQuality.excellent)
+}
+
+// MARK: Noise and SNR optionality
+
+private func testNoiseHandling() {
+    expectEqual("valid noise passes through", sample(rssi: -40, noise: -85).validNoise, -85)
+    expect("zero noise is treated as unreported", sample(rssi: -40, noise: 0).validNoise == nil)
+    expect("positive noise is rejected", sample(rssi: -40, noise: 5).validNoise == nil)
+    expect("absurdly low noise is rejected", sample(rssi: -40, noise: -130).validNoise == nil)
+
+    expectEqual("snr computed from valid noise", sample(rssi: -40, noise: -90).snr, 50)
+    expect("snr nil when noise unreported", sample(rssi: -40, noise: 0).snr == nil)
+    expect("snrQuality nil when noise unreported", sample(rssi: -40, noise: 0).snrQuality == nil)
+    expectEqual("snrQuality graded when noise present",
+                sample(rssi: -60, noise: -80).snrQuality, SignalQuality.fair)
+}
+
+// MARK: Access point identity
+
+private func testAPIdentity() {
+    let withBSSID = sample(rssi: -50).apKey
+    expect("bssid gives precise identity", withBSSID.isPreciseIdentity)
+    expectEqual("bssid is normalised to lower case",
+                APKey(bssid: "AA:BB:CC:DD:EE:FF", ssid: "N", channel: 1, bandRaw: 1, phyRaw: 6, securityRaw: 4).raw,
+                "bssid:aa:bb:cc:dd:ee:ff")
+
+    let noBSSID = sample(rssi: -50, bssid: nil).apKey
+    expect("missing bssid falls back to fingerprint", !noBSSID.isPreciseIdentity)
+    expect("fingerprint has no bssid value", noBSSID.bssidValue == nil)
+
+    // The fingerprint's known limitation: same channel and SSID collapses to one AP.
+    let a = sample(rssi: -50, bssid: nil, channel: 36).apKey
+    let b = sample(rssi: -80, bssid: nil, channel: 36).apKey
+    expectEqual("same channel fingerprints collide (documented limitation)", a, b)
+
+    let c = sample(rssi: -50, bssid: nil, channel: 149).apKey
+    expect("different channel is a different fingerprint", a != c)
+
+    // Colour must be stable across launches for the graph to stay readable.
+    let key1 = APKey(raw: "bssid:aa:bb:cc:dd:ee:ff")
+    let key2 = APKey(raw: "bssid:aa:bb:cc:dd:ee:ff")
+    expectEqual("colour index is deterministic", key1.colorIndex, key2.colorIndex)
+    expect("colour index is in range", key1.colorIndex >= 0 && key1.colorIndex < APPalette.colors.count)
+}
+
+// MARK: Formatting
+
+private func testFormatting() {
+    expectEqual("short mac", Fmt.shortMAC("00:00:5e:00:53:a1"), "…:8e:fa")
+    expectEqual("short mac passes through non-mac", Fmt.shortMAC("nope"), "nope")
+    expectEqual("rate in mbps", Fmt.rate(866), "866 Mbps")
+    expectEqual("rate in gbps", Fmt.rate(1200), "1.2 Gbps")
+    expectEqual("zero rate", Fmt.rate(0), "—")
+    expectEqual("seconds", Fmt.duration(45), "45s")
+    expectEqual("minutes", Fmt.duration(125), "2m 5s")
+    expectEqual("hours", Fmt.duration(3725), "1h 2m")
+}
+
+// MARK: Walkthrough leg attribution
+
+@MainActor
+private func testSurveyLegs() {
+    let base = Date(timeIntervalSince1970: 1_700_000_000)
+    let samples = (0..<30).map { sample(rssi: -50 - $0, at: Double($0), from: base) }
+    let w1 = Waypoint(time: base, label: "Reception")
+    let w2 = Waypoint(time: base.addingTimeInterval(10), label: "Corridor")
+    let w3 = Waypoint(time: base.addingTimeInterval(20), label: "Server room")
+
+    let session = SurveySession(
+        name: "Test", site: "Site", started: base,
+        ended: base.addingTimeInterval(30), sampleInterval: 1,
+        samples: samples, roamEvents: [], waypoints: [w1, w2, w3])
+
+    expectEqual("first leg spans to the next waypoint", session.leg(for: w1).count, 10)
+    expectEqual("middle leg spans to the next waypoint", session.leg(for: w2).count, 10)
+    expectEqual("last leg runs to the end of the session", session.leg(for: w3).count, 10)
+    expectEqual("leg starts at its own waypoint",
+                session.leg(for: w2).first?.time, base.addingTimeInterval(10))
+    expectEqual("distinct APs counted once", session.apKeys.count, 1)
+
+    // Waypoints out of order must still produce correct legs.
+    let shuffled = SurveySession(
+        name: "T", site: "", started: base, ended: base.addingTimeInterval(30),
+        sampleInterval: 1, samples: samples, roamEvents: [], waypoints: [w3, w1, w2])
+    expectEqual("leg is correct regardless of waypoint order",
+                shuffled.leg(for: w1).count, 10)
+}
+
+// MARK: Export safety
+
+@MainActor
+private func testExports() {
+    let base = Date(timeIntervalSince1970: 1_700_000_000)
+    let registry = APRegistry()
+    let samples = (0..<5).map { sample(rssi: -55, at: Double($0), from: base) }
+    let nasty = Waypoint(time: base, label: "Reception, \"main\" desk")
+    let session = SurveySession(
+        name: "Export", site: "", started: base, ended: base.addingTimeInterval(5),
+        sampleInterval: 1, samples: samples, roamEvents: [], waypoints: [nasty])
+
+    let csv = ReportBuilder.csv(for: session, registry: registry)
+    expect("csv quotes a field containing a comma",
+           csv.contains("\"Reception, \"\"main\"\" desk\""))
+    expectEqual("csv has a header plus one row per sample",
+                csv.split(separator: "\n").count, samples.count + 1)
+
+    let scripted = Waypoint(time: base, label: "<script>alert(1)</script>")
+    let xss = SurveySession(
+        name: "X<>", site: "", started: base, ended: base.addingTimeInterval(5),
+        sampleInterval: 1, samples: samples, roamEvents: [], waypoints: [scripted])
+    let html = ReportBuilder.html(for: xss, registry: registry)
+    expect("html escapes angle brackets from labels", !html.contains("<script>alert"))
+    expect("html contains the escaped form", html.contains("&lt;script&gt;"))
+
+    // A session with no readings must not crash the chart generator.
+    let empty = SurveySession(name: "Empty", site: "", started: base, ended: base,
+                              sampleInterval: 1, samples: [], roamEvents: [], waypoints: [])
+    let emptyHTML = ReportBuilder.html(for: empty, registry: registry)
+    expect("empty session still produces a report", emptyHTML.contains("Not enough readings"))
+}
+
+// MARK: Codable round trip
+
+@MainActor
+private func testRoundTrip() {
+    let base = Date(timeIntervalSince1970: 1_700_000_000)
+    let samples = (0..<50).map { sample(rssi: -50 - ($0 % 20), at: Double($0), from: base) }
+    let session = SurveySession(
+        name: "Round trip", site: "Acme", started: base,
+        ended: base.addingTimeInterval(50), sampleInterval: 1,
+        samples: samples, roamEvents: [], waypoints: [Waypoint(time: base, label: "Start")])
+
+    let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
+    let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+    guard let data = try? enc.encode(session),
+          let back = try? dec.decode(SurveySession.self, from: data) else {
+        expect("session encodes and decodes", false); return
+    }
+    expectEqual("sample count survives", back.samples.count, session.samples.count)
+    expectEqual("rssi survives", back.samples[7].rssi, session.samples[7].rssi)
+    expectEqual("ap identity survives", back.samples[7].apKey, session.samples[7].apKey)
+    expectEqual("waypoint id survives", back.waypoints.first?.id, session.waypoints.first?.id)
+    expectEqual("waypoint label survives", back.waypoints.first?.label, "Start")
+    expect("view-only sample ids are not encoded",
+           !String(data: data, encoding: .utf8)!.contains("\"id\":\"\(session.samples[0].id)\""))
+}
+
+@main
+@MainActor
+struct TestRunner {
+    static func main() {
+        testSignalQuality()
+        testNoiseHandling()
+        testAPIdentity()
+        testFormatting()
+        testSurveyLegs()
+        testExports()
+        testRoundTrip()
+        if CommandLine.arguments.count > 1 {
+            testVendorLookup(databaseURL: URL(fileURLWithPath: CommandLine.arguments[1]))
+        }
+
+        if failures.isEmpty {
+            print("✓ all \(checks) checks passed")
+        } else {
+            print("✗ \(failures.count) of \(checks) checks failed:")
+            for f in failures { print("   • \(f)") }
+            exit(1)
+        }
+    }
+}
+
+// MARK: Vendor lookup
+
+@MainActor
+private func testVendorLookup(databaseURL: URL) {
+    let db = VendorDatabase(url: databaseURL)
+    // Loading is asynchronous; give it a moment before asserting.
+    let deadline = Date().addingTimeInterval(10)
+    while !db.isReady, Date() < deadline {
+        RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+    }
+    expect("database loaded", db.isReady)
+    expect("database has a realistic number of blocks", db.recordCount > 40_000)
+
+    expectEqual("resolves the observed router", db.lookup("00:00:0c:11:22:33"), .known("Cisco Systems, Inc"))
+    expectEqual("resolves an Apple address", db.lookup("00:1b:63:11:22:33"), .known("Apple, Inc"))
+    expectEqual("case and separators do not matter",
+                db.lookup("00-1B-63-11-22-33"), .known("Apple, Inc"))
+
+    // The locally-administered bit must win before any table is consulted.
+    expectEqual("randomised address is not attributed",
+                db.lookup("ba:fa:e3:4f:e3:07"), .randomised)
+    expectEqual("another randomised address", db.lookup("92:ad:65:79:a9:1c"), .randomised)
+
+    // 02 is set on the first octet of every locally administered address.
+    expectEqual("locally administered bit detected",
+                db.lookup("02:00:00:00:00:01"), .randomised)
+
+    // 00:00:5E is the IANA block used by VRRP and friends — a good check that
+    // reserved assignments resolve rather than falling through as unknown.
+    if case .known(let iana) = db.lookup("00:00:5e:00:00:01") {
+        expect("IANA reserved block resolves", iana.uppercased().contains("IANA"))
+    } else {
+        expect("IANA reserved block resolves", false)
+    }
+    expectEqual("malformed input does not crash", db.lookup("nonsense"), .unregistered)
+    expectEqual("nil input", db.lookup(nil), .unregistered)
+
+    expectEqual("vendor prefix extracted", db.prefix(of: "00:00:0c:11:22:33"), "00:00:0c")
+}

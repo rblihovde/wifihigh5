@@ -69,11 +69,13 @@ struct LiveView: View {
                 SignalChart(
                     samples: monitor.samples(inLast: window),
                     roamEvents: monitor.roamEvents,
+                    waypoints: monitor.waypoints,
                     registry: registry,
                     window: window,
                     referenceDate: monitor.historyReferenceDate,
                     showNoise: showNoise,
-                    showRate: showRate
+                    showRate: showRate,
+                    sampleInterval: monitor.interval
                 )
                 .frame(height: 250)
             }

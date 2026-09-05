@@ -103,6 +103,17 @@ final class WiFiMonitor: ObservableObject {
     @Published private(set) var sessionStart = Date()
     @Published private(set) var currentAPSince: Date?
 
+    /// Places marked during the current session.
+    @Published private(set) var waypoints: [Waypoint] = []
+    /// Non-nil while a walkthrough is being recorded for later export.
+    @Published private(set) var recording: Recording?
+
+    /// Audible warning while walking, so the operator can watch the building
+    /// instead of the screen.
+    @Published var alertEnabled = false
+    @Published var alertThreshold = -70
+    private var alertLatched = false
+
     @Published var isRunning = true
     @Published var interval: Double = 1.0 {
         didSet { if isRunning { restartTimer() } }
@@ -124,6 +135,31 @@ final class WiFiMonitor: ObservableObject {
     init(registry: APRegistry) {
         self.registry = registry
         start()
+        observeSleepWake()
+    }
+
+    /// Sampling stops while the Mac is asleep. The timer recovers on its own,
+    /// but waiting up to a full interval after wake leaves an avoidable hole in
+    /// a walkthrough, so resume immediately instead. The resulting gap in the
+    /// series is detected from the sample timestamps and drawn as a break.
+    private func observeSleepWake() {
+        let center = NSWorkspace.shared.notificationCenter
+        center.addObserver(forName: NSWorkspace.willSleepNotification,
+                           object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isRunning else { return }
+                self.timer?.invalidate()
+                self.timer = nil
+            }
+        }
+        center.addObserver(forName: NSWorkspace.didWakeNotification,
+                           object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isRunning else { return }
+                self.restartTimer()
+                self.poll()
+            }
+        }
     }
 
     // MARK: Control
@@ -152,9 +188,93 @@ final class WiFiMonitor: ObservableObject {
         timer = t
     }
 
+    /// An in-progress walkthrough.
+    ///
+    /// Kept separate from the live buffer because that one is deliberately
+    /// capped for chart performance, while a recording must retain every
+    /// reading taken for the whole walk.
+    struct Recording {
+        var name: String
+        var site: String
+        var started: Date
+        var samples: [WiFiSample] = []
+        var roamEvents: [RoamEvent] = []
+    }
+
+    /// Twelve hours at one second, an upper bound so a forgotten recording
+    /// cannot grow without limit.
+    private let maximumRecordedSamples = 43_200
+
+    var isRecording: Bool { recording != nil }
+
+    func startRecording(name: String, site: String) {
+        recording = Recording(name: name, site: site, started: Date())
+    }
+
+    func cancelRecording() { recording = nil }
+
+    /// Ends the walkthrough and returns it for saving. Waypoints dropped during
+    /// the recording window travel with it.
+    func finishRecording() -> SurveySession? {
+        guard let r = recording else { return nil }
+        recording = nil
+        let ended = Date()
+        guard !r.samples.isEmpty else { return nil }
+        return SurveySession(
+            name: r.name,
+            site: r.site,
+            started: r.started,
+            ended: ended,
+            sampleInterval: interval,
+            samples: r.samples,
+            roamEvents: r.roamEvents,
+            waypoints: waypoints.filter { $0.time >= r.started && $0.time <= ended }
+        )
+    }
+
+    // MARK: Waypoints
+
+    /// Marks the current moment. The caller supplies the label afterwards, but
+    /// the timestamp and reading are captured here so they describe where the
+    /// operator actually was when the shortcut fired.
+    @discardableResult
+    func addWaypoint(label: String, note: String = "", at time: Date = Date()) -> Waypoint {
+        let nearest = samples.last
+        let w = Waypoint(time: time, label: label, note: note,
+                         rssi: nearest?.rssi, snr: nearest?.snr,
+                         apKeyRaw: nearest?.apKey.raw)
+        waypoints.append(w)
+        waypoints.sort { $0.time < $1.time }
+        return w
+    }
+
+    func updateWaypoint(_ waypoint: Waypoint) {
+        guard let i = waypoints.firstIndex(where: { $0.id == waypoint.id }) else { return }
+        waypoints[i] = waypoint
+    }
+
+    func removeWaypoint(id: UUID) {
+        waypoints.removeAll { $0.id == id }
+    }
+
+    /// Labels used recently, offered for one-click reuse while walking.
+    var recentWaypointLabels: [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for w in waypoints.reversed() where !w.label.isEmpty && !seen.contains(w.label) {
+            seen.insert(w.label)
+            out.append(w.label)
+            if out.count == 6 { break }
+        }
+        return out
+    }
+
     func clearSession() {
         samples.removeAll()
         roamEvents.removeAll()
+        waypoints.removeAll()
+        recording = nil
+        alertLatched = false
         sessionStart = Date()
         currentKey = nil
         lastConnectedKey = nil
@@ -276,7 +396,7 @@ final class WiFiMonitor: ObservableObject {
                 fromKey = currentKey
                 previous = current
             }
-            roamEvents.append(RoamEvent(
+            let event = RoamEvent(
                 time: sample.time,
                 fromKey: fromKey,
                 toKey: key,
@@ -285,7 +405,9 @@ final class WiFiMonitor: ObservableObject {
                 fromChannel: previous?.channel,
                 toChannel: sample.channel,
                 reason: reason
-            ))
+            )
+            roamEvents.append(event)
+            recording?.roamEvents.append(event)
             currentKey = key
             currentAPSince = sample.time
         }
@@ -296,12 +418,35 @@ final class WiFiMonitor: ObservableObject {
         lastConnectedSample = sample
         current = sample
         samples.append(sample)
+        captureForRecording(sample)
+        evaluateAlert(for: sample)
         let cutoff = sample.time.addingTimeInterval(-historyDuration)
         if let firstKept = samples.firstIndex(where: { $0.time >= cutoff }), firstKept > 0 {
             samples.removeFirst(firstKept)
         }
         if samples.count > maximumSampleCount {
             samples.removeFirst(samples.count - maximumSampleCount)
+        }
+    }
+
+    private func captureForRecording(_ sample: WiFiSample) {
+        guard recording != nil else { return }
+        recording?.samples.append(sample)
+        if let count = recording?.samples.count, count > maximumRecordedSamples {
+            recording?.samples.removeFirst(count - maximumRecordedSamples)
+        }
+    }
+
+    /// Sounds once when the signal drops through the threshold, and re-arms
+    /// only after it recovers by a few dB. Without that margin a reading
+    /// hovering on the line would chirp continuously.
+    private func evaluateAlert(for sample: WiFiSample) {
+        guard alertEnabled else { alertLatched = false; return }
+        if sample.rssi < alertThreshold, !alertLatched {
+            alertLatched = true
+            NSSound(named: "Submarine")?.play()
+        } else if sample.rssi > alertThreshold + 3 {
+            alertLatched = false
         }
     }
 

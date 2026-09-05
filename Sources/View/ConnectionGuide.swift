@@ -17,65 +17,7 @@ struct ConnectionGuide: View {
     var body: some View {
         Card {
             if let sample = monitor.current {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .top, spacing: 11) {
-                        Image(systemName: verdict(for: sample).symbol)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(verdict(for: sample).tint)
-                            .frame(width: 30, height: 30)
-                            .background(verdict(for: sample).tint.opacity(0.14), in: Circle())
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(verdict(for: sample).title)
-                                .font(.system(size: 15, weight: .semibold))
-                            Text(verdict(for: sample).detail)
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-
-                        Spacer(minLength: 12)
-
-                        Text(monitor.isRunning ? "LIVE" : "PAUSED")
-                            .font(.system(size: 9, weight: .bold))
-                            .tracking(0.6)
-                            .foregroundStyle(monitor.isRunning ? Color.green : Color.orange)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .background((monitor.isRunning ? Color.green : Color.orange).opacity(0.12), in: Capsule())
-                    }
-
-                    HStack(spacing: 8) {
-                        guideMetric("Signal", "\(sample.rssi) dBm", sample.quality.color,
-                                    sample.quality.label)
-                        guideMetric("Signal clarity", sample.snr.map { "\($0) dB" } ?? "Not reported",
-                                    sample.snrQuality?.color ?? .secondary,
-                                    sample.snrQuality?.label ?? "Unavailable")
-                        if let stats = monitor.stats(inLast: 60), stats.count >= 3 {
-                            guideMetric("Stability", "±\(stats.jitter) dB",
-                                        stats.jitter >= 7 ? .orange : .green,
-                                        stats.jitter >= 7 ? "Changing" : "Steady")
-                        }
-                        if pinger.enabled {
-                            let ready = pinger.completed >= 3
-                            guideMetric("Router", ready ? String(format: "%.0f%% loss", pinger.lossPercent) : "Testing…",
-                                        ready && pinger.lossPercent > 2 ? .red : .green,
-                                        ready ? (pinger.lossPercent > 2 ? "Unstable" : "Reachable") : "Collecting")
-                        }
-                    }
-
-                    if let next = verdict(for: sample).nextStep {
-                        HStack(alignment: .top, spacing: 6) {
-                            Image(systemName: "lightbulb.fill")
-                                .font(.system(size: 10))
-                                .foregroundStyle(verdict(for: sample).tint)
-                                .padding(.top, 1)
-                            Text(next)
-                                .font(.system(size: 10.5, weight: .medium))
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
+                connected(sample)
             } else {
                 HStack(spacing: 10) {
                     Image(systemName: "wifi.exclamationmark")
@@ -91,6 +33,74 @@ struct ConnectionGuide: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+
+    /// The verdict and the recent-stats window are each resolved once per
+    /// render. Both walk the sample buffer, and the body reads them repeatedly.
+    @ViewBuilder
+    private func connected(_ sample: WiFiSample) -> some View {
+        let recent = monitor.stats(inLast: 60)
+        let v = verdict(for: sample, recent: recent)
+
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 11) {
+                Image(systemName: v.symbol)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(v.tint)
+                    .frame(width: 30, height: 30)
+                    .background(v.tint.opacity(0.14), in: Circle())
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(v.title)
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(v.detail)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                Text(monitor.isRunning ? "LIVE" : "PAUSED")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(monitor.isRunning ? Color.green : Color.orange)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background((monitor.isRunning ? Color.green : Color.orange).opacity(0.12), in: Capsule())
+            }
+
+            HStack(spacing: 8) {
+                guideMetric("Signal", "\(sample.rssi) dBm", sample.quality.color,
+                            sample.quality.label)
+                guideMetric("Signal clarity", sample.snr.map { "\($0) dB" } ?? "Not reported",
+                            sample.snrQuality?.color ?? .secondary,
+                            sample.snrQuality?.label ?? "Unavailable")
+                if let recent, recent.count >= 3 {
+                    guideMetric("Stability", "±\(recent.jitter) dB",
+                                recent.jitter >= 7 ? .orange : .green,
+                                recent.jitter >= 7 ? "Changing" : "Steady")
+                }
+                if pinger.enabled {
+                    let ready = pinger.completed >= 3
+                    guideMetric("Router", ready ? String(format: "%.0f%% loss", pinger.lossPercent) : "Testing…",
+                                ready && pinger.lossPercent > 2 ? .red : .green,
+                                ready ? (pinger.lossPercent > 2 ? "Unstable" : "Reachable") : "Collecting")
+                }
+            }
+
+            if let next = v.nextStep {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "lightbulb.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(v.tint)
+                        .padding(.top, 1)
+                    Text(next)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -113,7 +123,7 @@ struct ConnectionGuide: View {
         .accessibilityLabel("\(label), \(status), \(value)")
     }
 
-    private func verdict(for sample: WiFiSample) -> Verdict {
+    private func verdict(for sample: WiFiSample, recent: WiFiMonitor.Stats?) -> Verdict {
         if !monitor.isRunning {
             return Verdict(
                 title: "Monitoring is paused",
@@ -156,7 +166,7 @@ struct ConnectionGuide: View {
                 symbol: "exclamationmark.circle.fill", tint: .orange)
         }
 
-        if let stats = monitor.stats(inLast: 60), stats.count >= 10, stats.jitter >= 7 {
+        if let stats = recent, stats.count >= 10, stats.jitter >= 7 {
             return Verdict(
                 title: "The signal is changing quickly",
                 detail: "Signal varied by about ±\(stats.jitter) dB over the last minute. That can happen near a coverage edge or while moving.",

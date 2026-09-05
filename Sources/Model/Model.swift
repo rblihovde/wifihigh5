@@ -148,7 +148,7 @@ func securityIsOpen(_ raw: Int) -> Bool { raw == 0 }
 
 // MARK: - A single poll of the interface
 
-struct WiFiSample: Identifiable {
+struct WiFiSample: Identifiable, Codable {
     let id = UUID()
     let time: Date
 
@@ -166,6 +166,14 @@ struct WiFiSample: Identifiable {
     var countryCode: String?
     var interfaceName: String
     var hardwareAddress: String?
+
+    /// `id` is view identity only and is regenerated on load, so it is left out
+    /// of the encoding — at one sample per second it would be pure overhead.
+    private enum CodingKeys: String, CodingKey {
+        case time, ssid, bssid, rssi, noise, txRate, txPower, channel
+        case channelWidthRaw, bandRaw, phyRaw, securityRaw, countryCode
+        case interfaceName, hardwareAddress, apKey
+    }
 
     /// Stable key identifying the AP this sample came from.
     ///
@@ -267,7 +275,7 @@ enum APPalette {
 
 // MARK: - Roam events
 
-struct RoamEvent: Identifiable {
+struct RoamEvent: Identifiable, Codable {
     let id = UUID()
     let time: Date
     let fromKey: APKey?
@@ -278,7 +286,11 @@ struct RoamEvent: Identifiable {
     let toChannel: Int
     let reason: Reason
 
-    enum Reason {
+    private enum CodingKeys: String, CodingKey {
+        case time, fromKey, toKey, fromRSSI, toRSSI, fromChannel, toChannel, reason
+    }
+
+    enum Reason: String, Codable {
         case initialAssociation
         case bssidChange
         case channelChange
@@ -361,4 +373,26 @@ enum Fmt {
         guard parts.count == 6 else { return mac }
         return "…:\(parts[4]):\(parts[5])"
     }
+}
+
+
+// MARK: - Waypoints
+
+/// A place the operator marked while walking a site.
+///
+/// The timestamp is taken the instant the shortcut is pressed, not when the
+/// name is typed, so the label lands on the reading it describes rather than on
+/// wherever the operator had walked to by the time they finished typing.
+struct Waypoint: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var time: Date
+    var label: String
+    var note: String = ""
+
+    /// Signal at the moment the waypoint was dropped, filled in at capture.
+    var rssi: Int?
+    var snr: Int?
+    var apKeyRaw: String?
+
+    var apKey: APKey? { apKeyRaw.map(APKey.init(raw:)) }
 }

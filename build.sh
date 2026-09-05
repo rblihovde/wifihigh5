@@ -50,6 +50,11 @@ cp Resources/Info.plist "${STAGING_BUNDLE}/Contents/Info.plist"
 if [ -f Resources/AppIcon.icns ]; then
     cp Resources/AppIcon.icns "${STAGING_BUNDLE}/Contents/Resources/AppIcon.icns"
 fi
+if [ -f Resources/OUI.txt ]; then
+    cp Resources/OUI.txt "${STAGING_BUNDLE}/Contents/Resources/OUI.txt"
+else
+    echo "    note: Resources/OUI.txt missing — run tools/update-oui.sh for vendor names"
+fi
 printf 'APPL????' > "${STAGING_BUNDLE}/Contents/PkgInfo"
 
 echo "==> Signing as: ${IDENTITY}"
@@ -63,5 +68,18 @@ codesign --verify --strict --verbose=2 "${STAGING_BUNDLE}" 2>&1 | sed 's/^/    /
 echo "==> Installing verified build"
 rm -rf "${BUNDLE}"
 mv "${STAGING_BUNDLE}" "${BUNDLE}"
+
+# The Location Services grant is bound to the installed bundle's path, so the
+# app is installed to a stable location rather than run out of ./build. Set
+# SKIP_INSTALL=1 to build only.
+if [ "${SKIP_INSTALL:-0}" != "1" ]; then
+    INSTALLED="/Applications/${APP_NAME}.app"
+    echo "==> Installing to ${INSTALLED}"
+    rm -rf "${INSTALLED}"
+    cp -R "${BUNDLE}" "/Applications/"
+    LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+    "${LSREGISTER}" -f "${INSTALLED}"
+    echo "    registered with LaunchServices"
+fi
 
 echo "==> Built ${BUNDLE}"

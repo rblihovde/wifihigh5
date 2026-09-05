@@ -8,6 +8,7 @@ struct DiagnosticsView: View {
     @EnvironmentObject var registry: APRegistry
     @EnvironmentObject var gate: LocationGate
     @EnvironmentObject var netInfo: NetworkInfoModel
+    @EnvironmentObject var vendors: VendorDatabase
     @State private var confirmClearSession = false
     @State private var exportError: String?
 
@@ -234,6 +235,11 @@ struct DiagnosticsView: View {
                 }
 
                 Divider()
+                InfoRow(label: "Vendor database",
+                        value: vendors.isReady
+                            ? "\(vendors.recordCount) blocks · IEEE \(vendors.retrieved ?? "unknown date")"
+                            : "loading…",
+                        help: "Embedded copy of the IEEE MAC registry. Never fetched at runtime; refresh with tools/update-oui.sh.")
                 InfoRow(label: "Saved APs", value: "\(registry.records.count)")
                 InfoRow(label: "Interface", value: monitor.current?.interfaceName ?? "—", mono: true)
                 InfoRow(label: "Primary service", value: netInfo.config.primaryInterface ?? "—", mono: true)

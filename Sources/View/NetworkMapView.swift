@@ -18,7 +18,10 @@ struct NetworkMapView: View {
     @State private var offset = CGSize.zero
     @State private var committedOffset = CGSize.zero
     @State private var arp: [ARPEntry] = []
-    @State private var selected: MapNode?
+    @State private var arpObservedAt: Date?
+    @State private var arpReadInFlight = false
+    @State private var selectedNodeID: String?
+    @State private var showNotes = false
     @State private var refreshTick = 0
     @State private var lastViewportSize = CGSize(width: 900, height: 600)
     /// Until the operator pans or zooms, the drawing keeps framing itself as
@@ -27,23 +30,26 @@ struct NetworkMapView: View {
 
     // Lattice geometry.
     private let nodeWidth: CGFloat = 232
-    private let columnSpacing: CGFloat = 296
-    private let rowSpacing: CGFloat = 268
+    private let columnSpacing: CGFloat = 280
+    private let rowSpacing: CGFloat = 240
 
     private var map: NetworkMap {
         _ = refreshTick
         return TopologyBuilder.build(
             sample: monitor.current, status: monitor.status,
             ip: netInfo.config, arp: arp, scan: scanner.results,
+            ipObservedAt: netInfo.lastRefresh,
+            arpObservedAt: arpObservedAt,
+            scanObservedAt: scanner.lastScan,
             registry: registry, pinger: pinger, vendors: vendors)
     }
 
     /// How much of each node is worth showing at the current magnification.
     private var detail: Detail? {
         switch zoom {
-        case ..<0.55: return nil
-        case ..<1.28: return .primary
-        case ..<2.15: return .secondary
+        case ..<0.72: return nil
+        case ..<1.25: return .primary
+        case ..<2.0: return .secondary
         default:      return .full
         }
     }
@@ -57,6 +63,15 @@ struct NetworkMapView: View {
         }
     }
 
+    /// Only values that can change the fitted extents belong here. Live RSSI
+    /// changes redraw continuously without needlessly snapping the viewport.
+    private var layoutSignature: [String] {
+        map.nodes.map { node in
+            let primaryCount = node.facts.filter { $0.detail == .primary && !$0.inspectorOnly }.count
+            return "\(node.id):\(primaryCount)"
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             toolbar
@@ -64,7 +79,12 @@ struct NetworkMapView: View {
             GeometryReader { geo in
                 ZStack(alignment: .topLeading) {
                     canvas(geo.size)
-                    if let node = selected {
+                    if showNotes, !operationalNotes.isEmpty {
+                        notesPanel
+                            .padding(12)
+                            .allowsHitTesting(true)
+                    }
+                    if let selectedNodeID, let node = map.node(selectedNodeID) {
                         inspector(node)
                             .padding(12)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
@@ -88,12 +108,24 @@ struct NetworkMapView: View {
                 .simultaneousGesture(
                     MagnifyGesture()
                         .onChanged { v in
-                            zoom = min(max(committedZoom * v.magnification, 0.35), 4.5)
+                            let nextZoom = clampedZoom(committedZoom * v.magnification)
+                            let anchor = CGPoint(x: geo.size.width * v.startAnchor.x,
+                                                 y: geo.size.height * v.startAnchor.y)
+                            offset = zoomedOffset(from: committedOffset,
+                                                  oldZoom: committedZoom,
+                                                  newZoom: nextZoom,
+                                                  anchor: anchor,
+                                                  viewport: geo.size)
+                            zoom = nextZoom
                         }
-                        .onEnded { _ in committedZoom = zoom; userAdjusted = true }
+                        .onEnded { _ in
+                            committedZoom = zoom
+                            committedOffset = offset
+                            userAdjusted = true
+                        }
                 )
                 .onTapGesture { location in
-                    selected = hitTest(location, in: geo.size)
+                    selectedNodeID = hitTest(location, in: geo.size)?.id
                 }
                 .onAppear {
                     lastViewportSize = geo.size
@@ -103,8 +135,13 @@ struct NetworkMapView: View {
                     lastViewportSize = new
                     if !userAdjusted { fit(in: new) }
                 }
-                .onChange(of: map.nodes.count) { _, _ in
+                .onChange(of: layoutSignature) { _, _ in
                     if !userAdjusted { fit(in: lastViewportSize) }
+                }
+                .onChange(of: map.nodes.map(\.id)) { _, ids in
+                    if let selectedNodeID, !ids.contains(selectedNodeID) {
+                        self.selectedNodeID = nil
+                    }
                 }
             }
         }
@@ -117,53 +154,142 @@ struct NetworkMapView: View {
     }
 
     private func reloadARP() {
+        guard !arpReadInFlight else { return }
+        arpReadInFlight = true
         DispatchQueue.global(qos: .utility).async {
             let entries = ARPTable.read()
-            Task { @MainActor in self.arp = entries }
+            Task { @MainActor in
+                self.arp = entries
+                self.arpObservedAt = Date()
+                self.arpReadInFlight = false
+            }
         }
     }
 
     // MARK: Toolbar
 
+    private var operationalNotes: [String] {
+        map.notes + (scanner.errorMessage.map { ["Scan could not be refreshed: \($0)"] } ?? [])
+    }
+
     private var toolbar: some View {
         HStack(spacing: 10) {
-            Text("SIGNAL PATH")
+            Text("CURRENT CONNECTION")
                 .font(.system(size: 10, weight: .semibold)).tracking(0.6)
                 .foregroundStyle(.secondary)
+                .fixedSize()
+                .help("The current connection path and locally observed context — not a full network inventory")
 
             Pill(text: detailName, tint: .blue)
+                .fixedSize()
                 .help("Zoom in for more detail on every node and link")
 
             Spacer()
 
-            if scanner.results.isEmpty {
-                Button {
-                    scanner.scan(currentSSID: monitor.current?.ssid,
-                                 currentBSSID: monitor.current?.bssid)
-                } label: {
-                    Label("Find other access points", systemImage: "dot.radiowaves.up.forward")
+            Menu {
+                ForEach(map.nodes) { node in
+                    Button(node.title) { focus(on: node) }
                 }
-                .controlSize(.small)
-                .help("Runs a scan. Unlike the rest of the app this transmits.")
+            } label: {
+                Label("Jump to", systemImage: "scope")
+            }
+            .controlSize(.small)
+            .help("Center a map item and show all of its facts")
+
+            Button {
+                scanner.scan(currentSSID: monitor.current?.ssid,
+                             currentBSSID: monitor.current?.bssid)
+            } label: {
+                Label(scanner.isScanning ? "Scanning…" : (scanner.results.isEmpty ? "Find APs" : "Refresh APs"),
+                      systemImage: scanner.isScanning ? "dot.radiowaves.left.and.right" : "dot.radiowaves.up.forward")
+            }
+            .controlSize(.small)
+            .disabled(scanner.isScanning || monitor.current?.ssid == nil)
+            .help(monitor.current?.ssid == nil
+                  ? "The current network name is needed to match other access points."
+                  : "Scans for nearby access points. This sends Wi-Fi probe requests.")
+
+            Pill(text: "TRANSMITS", tint: .orange)
+                .help("Nearby-network scans send Wi-Fi probe requests")
+
+            if let lastScan = scanner.lastScan {
+                Text(Fmt.relativeTime(lastScan))
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(Date().timeIntervalSince(lastScan) > 120 ? .orange : .secondary)
+                    .help("Last nearby-network scan: \(Fmt.stamp.string(from: lastScan))")
             }
 
-            Button { setZoom(zoom / 1.35) } label: { Image(systemName: "minus.magnifyingglass") }
+            if !operationalNotes.isEmpty {
+                Button { showNotes.toggle() } label: {
+                    Label("Map notes", systemImage: "info.circle")
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .help("Show \(operationalNotes.count) map note\(operationalNotes.count == 1 ? "" : "s")")
+            }
+
+            Button { setZoom(zoom / 1.35) } label: {
+                Label("Zoom out", systemImage: "minus.magnifyingglass")
+            }
+                .labelStyle(.iconOnly)
                 .controlSize(.small)
+                .help("Zoom out")
             Text(String(format: "%.0f%%", zoom * 100))
                 .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(.secondary).frame(width: 42)
-            Button { setZoom(zoom * 1.35) } label: { Image(systemName: "plus.magnifyingglass") }
+            Button { setZoom(zoom * 1.35) } label: {
+                Label("Zoom in", systemImage: "plus.magnifyingglass")
+            }
+                .labelStyle(.iconOnly)
                 .controlSize(.small)
+                .help("Zoom in")
             Button("Fit") { fitToDefault() }.controlSize(.small)
+                .help("Fit the whole connection map in the window")
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
     }
 
     private func setZoom(_ z: CGFloat) {
         userAdjusted = true
+        let nextZoom = clampedZoom(z)
+        let centre = CGPoint(x: lastViewportSize.width / 2, y: lastViewportSize.height / 2)
+        let nextOffset = zoomedOffset(from: offset, oldZoom: zoom, newZoom: nextZoom,
+                                      anchor: centre, viewport: lastViewportSize)
         withAnimation(.easeOut(duration: 0.18)) {
-            zoom = min(max(z, 0.35), 4.5)
-            committedZoom = zoom
+            zoom = nextZoom
+            offset = nextOffset
+            committedZoom = nextZoom
+            committedOffset = nextOffset
+        }
+    }
+
+    private func clampedZoom(_ value: CGFloat) -> CGFloat {
+        min(max(value, 0.22), 4.5)
+    }
+
+    /// Keeps the model point beneath the gesture anchor in place while the
+    /// rest of the drawing scales around it.
+    private func zoomedOffset(from oldOffset: CGSize, oldZoom: CGFloat, newZoom: CGFloat,
+                              anchor: CGPoint, viewport: CGSize) -> CGSize {
+        guard oldZoom > 0 else { return oldOffset }
+        let centre = CGPoint(x: viewport.width / 2, y: viewport.height / 2)
+        let modelX = (anchor.x - centre.x - oldOffset.width) / oldZoom
+        let modelY = (anchor.y - centre.y - oldOffset.height) / oldZoom
+        return CGSize(width: anchor.x - centre.x - modelX * newZoom,
+                      height: anchor.y - centre.y - modelY * newZoom)
+    }
+
+    private func focus(on node: MapNode) {
+        userAdjusted = true
+        let nextZoom = max(zoom, 1.0)
+        let point = origin(for: node)
+        let nextOffset = CGSize(width: -point.x * nextZoom, height: -point.y * nextZoom)
+        withAnimation(.easeOut(duration: 0.22)) {
+            zoom = nextZoom
+            committedZoom = nextZoom
+            offset = nextOffset
+            committedOffset = nextOffset
+            selectedNodeID = node.id
         }
     }
 
@@ -179,7 +305,7 @@ struct NetworkMapView: View {
         let margin: CGFloat = 72
         let scale = min((size.width - margin) / box.width,
                         (size.height - margin) / box.height)
-        zoom = min(max(scale, 0.35), 1.15)
+        zoom = min(max(scale, 0.22), 1.15)
         committedZoom = zoom
         let centre = CGPoint(x: box.midX, y: box.midY)
         offset = CGSize(width: -centre.x * zoom, height: -centre.y * zoom)
@@ -247,6 +373,15 @@ struct NetworkMapView: View {
             for node in m.nodes { drawNode(ctx, node, canvasSize) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityLabel("Current connection map")
+        .accessibilityHint("Use Jump to in the toolbar to inspect a map item without panning or zooming.")
+        .accessibilityRepresentation {
+            VStack {
+                ForEach(map.nodes) { node in
+                    Button("\(node.title), \(node.confidence.label)") { focus(on: node) }
+                }
+            }
+        }
     }
 
     /// Drafting lattice. The fine grid only appears once you are close enough
@@ -294,8 +429,8 @@ struct NetworkMapView: View {
         }
 
         let tint = edge.confidence.tint
-        let dash: [CGFloat] = edge.confidence == .observed ? [] : [5, 4]
-        ctx.stroke(path, with: .color(tint.opacity(edge.confidence == .observed ? 0.9 : 0.6)),
+        let dash: [CGFloat] = edge.confidence == .unobserved ? [5, 4] : []
+        ctx.stroke(path, with: .color(tint.opacity(edge.confidence == .unobserved ? 0.6 : 0.9)),
                    style: StrokeStyle(lineWidth: edge.kind == .wireless ? 2 : 1.3,
                                       lineCap: .round, lineJoin: .round, dash: dash))
 
@@ -306,7 +441,8 @@ struct NetworkMapView: View {
                      with: .color(tint))
         }
 
-        guard zoom > 0.6 else { return }
+        // At overview scale, topology is more useful than repeated tiny labels.
+        guard zoom > 0.8 else { return }
         let caption = edge.caption ?? edge.kind.label
         let label = Text(caption)
             .font(.system(size: 9.5, weight: .medium, design: .monospaced))
@@ -329,7 +465,7 @@ struct NetworkMapView: View {
               box.maxY > -40, box.minY < size.height + 40 else { return }
 
         let tint = node.accent ?? node.confidence.tint
-        let isSelected = selected?.id == node.id
+        let isSelected = selectedNodeID == node.id
 
         // Plate.
         let plate = Path(roundedRect: box, cornerRadius: 6 * zoom)
@@ -349,22 +485,34 @@ struct NetworkMapView: View {
 
         // Title block.
         let textX = box.minX + (11 + 30 + 9) * zoom
-        let title = ctx.resolve(Text(node.title)
-            .font(.system(size: 11.5 * zoom, weight: .semibold))
-            .foregroundStyle(Color.primary))
+        let titleSize = max(8.5, 11.5 * zoom)
+        let confidenceReserve: CGFloat = {
+            guard zoom > 0.9 else { return 0 }
+            switch node.confidence {
+            case .observed: return 0
+            case .inferred: return 46 * zoom
+            case .unobserved: return 78 * zoom
+            }
+        }()
+        let title = elide(node.title,
+                          to: box.maxX - textX - 9 * zoom - confidenceReserve,
+                          ctx: ctx, size: titleSize, weight: .semibold,
+                          design: .default, tint: Color.primary)
         ctx.draw(title, at: CGPoint(x: textX, y: box.minY + 17 * zoom), anchor: .leading)
 
-        if let sub = node.subtitle {
-            let subtitle = ctx.resolve(Text(sub)
-                .font(.system(size: 9 * zoom, design: .monospaced))
-                .foregroundStyle(Color.secondary))
+        if let sub = node.subtitle, zoom >= 0.58 {
+            let subtitle = elide(sub,
+                                 to: box.maxX - textX - 9 * zoom,
+                                 ctx: ctx, size: max(7.5, 9 * zoom),
+                                 weight: .regular, design: .monospaced,
+                                 tint: Color.secondary)
             ctx.draw(subtitle, at: CGPoint(x: textX, y: box.minY + 30 * zoom), anchor: .leading)
         }
 
         // Confidence stamp, like a drawing revision mark.
-        if node.confidence != .observed {
+        if node.confidence != .observed, zoom > 0.9 {
             let stamp = ctx.resolve(Text(node.confidence.label.uppercased())
-                .font(.system(size: 7 * zoom, weight: .bold))
+                .font(.system(size: max(6.5, 7 * zoom), weight: .bold))
                 .foregroundStyle(node.confidence.tint))
             ctx.draw(stamp, at: CGPoint(x: box.maxX - 8 * zoom, y: box.minY + 12 * zoom), anchor: .trailing)
         }
@@ -380,7 +528,7 @@ struct NetworkMapView: View {
 
         for fact in facts {
             let key = ctx.resolve(Text(fact.label)
-                .font(.system(size: 8.5 * zoom))
+                .font(.system(size: max(8, 8.5 * zoom)))
                 .foregroundStyle(Color.secondary))
             let keyWidth = key.measure(in: CGSize(width: 400, height: 40)).width
             ctx.draw(key, at: CGPoint(x: box.minX + 11 * zoom, y: y), anchor: .leading)
@@ -389,16 +537,18 @@ struct NetworkMapView: View {
             // text is always available in the inspector.
             let available = box.width - keyWidth - 30 * zoom
             let value = elide(fact.value, to: available, ctx: ctx,
-                              size: 9 * zoom, tint: fact.tint ?? Color.primary)
+                              size: max(8, 9 * zoom), tint: fact.tint ?? Color.primary)
             ctx.draw(value, at: CGPoint(x: box.maxX - 11 * zoom, y: y), anchor: .trailing)
             y += 17 * zoom
         }
     }
 
     private func elide(_ text: String, to width: CGFloat, ctx: GraphicsContext,
-                       size: CGFloat, tint: Color) -> GraphicsContext.ResolvedText {
+                       size: CGFloat, weight: Font.Weight = .medium,
+                       design: Font.Design = .monospaced,
+                       tint: Color) -> GraphicsContext.ResolvedText {
         func resolve(_ s: String) -> GraphicsContext.ResolvedText {
-            ctx.resolve(Text(s).font(.system(size: size, weight: .medium, design: .monospaced))
+            ctx.resolve(Text(s).font(.system(size: size, weight: weight, design: design))
                 .foregroundStyle(tint))
         }
         var resolved = resolve(text)
@@ -416,6 +566,31 @@ struct NetworkMapView: View {
 
     // MARK: Overlays
 
+    private var notesPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("About this map").font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Button { showNotes = false } label: {
+                    Label("Close notes", systemImage: "xmark.circle.fill")
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .foregroundStyle(.tertiary)
+            }
+            ForEach(operationalNotes, id: \.self) { note in
+                Label(note, systemImage: "info.circle")
+                    .font(.system(size: 10.5))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .frame(width: 340)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.hairline, lineWidth: 1))
+        .shadow(color: .black.opacity(0.14), radius: 8, y: 3)
+    }
+
     private var legend: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text("CONFIDENCE")
@@ -423,11 +598,19 @@ struct NetworkMapView: View {
                 .foregroundStyle(.secondary)
             ForEach([Confidence.observed, .inferred, .unobserved], id: \.label) { c in
                 HStack(spacing: 6) {
-                    Rectangle().fill(c.tint).frame(width: 14, height: 2)
+                    Canvas { context, size in
+                        var line = Path()
+                        line.move(to: CGPoint(x: 0, y: size.height / 2))
+                        line.addLine(to: CGPoint(x: size.width, y: size.height / 2))
+                        context.stroke(line, with: .color(c.tint),
+                                       style: StrokeStyle(lineWidth: 2,
+                                                          dash: c == .unobserved ? [3, 2] : []))
+                    }
+                    .frame(width: 14, height: 4)
                     Text(c.label).font(.system(size: 9.5)).foregroundStyle(.secondary)
                 }
             }
-            Text("Dashed lines are paths this Mac cannot see.")
+            Text("Only grey dashed paths are not observable.")
                 .font(.system(size: 9)).foregroundStyle(Color.subtle)
                 .padding(.top, 2)
         }
@@ -442,7 +625,10 @@ struct NetworkMapView: View {
                 Text(node.title).font(.system(size: 13, weight: .semibold))
                 Spacer(minLength: 8)
                 Pill(text: node.confidence.label, tint: node.confidence.tint)
-                Button { selected = nil } label: { Image(systemName: "xmark.circle.fill") }
+                Button { selectedNodeID = nil } label: {
+                    Label("Close details", systemImage: "xmark.circle.fill")
+                }
+                    .labelStyle(.iconOnly)
                     .buttonStyle(.borderless).foregroundStyle(.tertiary)
             }
             if let sub = node.subtitle {
@@ -450,23 +636,44 @@ struct NetworkMapView: View {
             }
             Divider()
             // The inspector always shows everything, whatever the zoom.
-            ForEach(node.facts) { fact in
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(fact.label.uppercased())
-                        .font(.system(size: 8, weight: .semibold)).tracking(0.4)
-                        .foregroundStyle(.secondary)
-                    Text(fact.value)
-                        .font(.system(size: 11, design: fact.value.count > 40 ? .default : .monospaced))
-                        .foregroundStyle(fact.tint ?? .primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 9) {
+                    ForEach(node.facts) { fact in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(fact.label.uppercased())
+                                .font(.system(size: 8, weight: .semibold)).tracking(0.4)
+                                .foregroundStyle(.secondary)
+                            Text(fact.value)
+                                .font(.system(size: 11, design: fact.value.count > 40 ? .default : .monospaced))
+                                .foregroundStyle(fact.tint ?? .primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .textSelection(.enabled)
+                            if let metadata = factMetadata(fact) {
+                                Text(metadata)
+                                    .font(.system(size: 8.5))
+                                    .foregroundStyle(fact.isStale() ? Color.orange : Color.subtle)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .help(fact.observedAt.map { Fmt.stamp.string(from: $0) } ?? "")
+                            }
+                        }
+                    }
                 }
             }
+            .frame(maxHeight: 430)
         }
         .padding(12)
-        .frame(width: 268)
+        .frame(width: 282)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
         .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.hairline, lineWidth: 1))
         .shadow(color: .black.opacity(0.16), radius: 10, y: 4)
+    }
+
+    private func factMetadata(_ fact: Fact) -> String? {
+        var pieces: [String] = []
+        if fact.isStale() { pieces.append("STALE") }
+        if let confidence = fact.confidence { pieces.append(confidence.label) }
+        if let source = fact.source { pieces.append(source) }
+        if let observedAt = fact.observedAt { pieces.append(Fmt.relativeTime(observedAt)) }
+        return pieces.isEmpty ? nil : pieces.joined(separator: " · ")
     }
 }

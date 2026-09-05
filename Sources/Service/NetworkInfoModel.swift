@@ -5,6 +5,7 @@ import Combine
 @MainActor
 final class NetworkInfoModel: ObservableObject {
     @Published private(set) var config = IPConfig()
+    @Published private(set) var lastRefresh: Date?
 
     private var timer: Timer?
     private var interfaceName = "en0"
@@ -30,7 +31,10 @@ final class NetworkInfoModel: ObservableObject {
         let name = interfaceName
         DispatchQueue.global(qos: .utility).async {
             let cfg = SystemNetwork.read(interface: name)
-            Task { @MainActor in self.config = cfg }
+            Task { @MainActor in
+                self.config = cfg
+                self.lastRefresh = Date()
+            }
         }
     }
 }

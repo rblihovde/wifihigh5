@@ -5,6 +5,8 @@ import Darwin
 struct ARPEntry: Hashable {
     var ip: String
     var mac: String
+    /// Interface that owned the neighbour-cache entry at the time it was read.
+    var interfaceName: String? = nil
 
     /// Set when the second-least-significant bit of the first octet is on,
     /// which means the address was assigned by software rather than burned in —
@@ -47,6 +49,7 @@ enum ARPTable {
                 defer { offset += messageLength }
 
                 let base = raw.baseAddress!.advanced(by: offset)
+                let header = base.assumingMemoryBound(to: rt_msghdr.self)
                 let sin = base.advanced(by: MemoryLayout<rt_msghdr>.size)
                     .assumingMemoryBound(to: sockaddr_inarp.self)
                 let sdl = UnsafeRawPointer(sin)
@@ -63,7 +66,11 @@ enum ARPTable {
                     .assumingMemoryBound(to: UInt8.self)
                 let mac = (0..<6).map { String(format: "%02x", macBytes[$0]) }.joined(separator: ":")
 
-                entries.append(ARPEntry(ip: String(cString: cString), mac: mac))
+                var interfaceBuffer = [CChar](repeating: 0, count: Int(IF_NAMESIZE))
+                let interface = if_indextoname(UInt32(header.pointee.rtm_index), &interfaceBuffer)
+                    .map { String(cString: $0) }
+                entries.append(ARPEntry(ip: String(cString: cString), mac: mac,
+                                        interfaceName: interface))
             }
         }
         return entries
@@ -79,5 +86,26 @@ enum ARPTable {
         guard lhs.prefix(5) == rhs.prefix(5) else { return false }
         guard let l = UInt8(lhs[5], radix: 16), let r = UInt8(rhs[5], radix: 16) else { return false }
         return abs(Int(l) - Int(r)) <= 8
+    }
+
+    /// True when two IPv4 addresses belong to the same subnet. This keeps a
+    /// multi-homed Mac's Ethernet, VPN, bridge, and Wi-Fi neighbour caches from
+    /// being presented as one network.
+    static func isOnSubnet(_ candidate: String, localAddress: String, mask: String) -> Bool {
+        guard let candidateValue = ipv4Value(candidate),
+              let localValue = ipv4Value(localAddress),
+              let maskValue = ipv4Value(mask) else { return false }
+        return candidateValue & maskValue == localValue & maskValue
+    }
+
+    private static func ipv4Value(_ address: String) -> UInt32? {
+        let parts = address.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else { return nil }
+        var result: UInt32 = 0
+        for part in parts {
+            guard let octet = UInt8(part) else { return nil }
+            result = (result << 8) | UInt32(octet)
+        }
+        return result
     }
 }

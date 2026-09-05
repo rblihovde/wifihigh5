@@ -198,6 +198,109 @@ private func testRoundTrip() {
            !String(data: data, encoding: .utf8)!.contains("\"id\":\"\(session.samples[0].id)\""))
 }
 
+// MARK: Connection topology
+
+private func scannedAP(_ suffix: Int, rssi: Int) -> ScanResult {
+    ScanResult(ssid: "Net",
+               bssid: String(format: "00:11:22:33:44:%02x", suffix),
+               rssi: rssi, noise: -92, channel: 36 + suffix,
+               bandRaw: 2, widthRaw: 3, securityRaw: 4,
+               isCurrentNetwork: true, isCurrentAP: false)
+}
+
+@MainActor
+private func testTopology(databaseURL: URL) {
+    let registry = APRegistry()
+    let vendors = VendorDatabase(url: databaseURL)
+    let pinger = GatewayPinger()
+    let now = Date(timeIntervalSince1970: 1_700_000_100)
+    let config = IPConfig(ipv4: "192.168.10.20", subnetMask: "255.255.255.0",
+                          router: "192.168.10.1", primaryInterface: "en0",
+                          activeMAC: "11:22:33:44:55:66")
+    let router = ARPEntry(ip: "192.168.10.1", mac: "00:aa:bb:cc:dd:10",
+                          interfaceName: "en0")
+
+    let hiddenBSSID = sample(rssi: -58, bssid: nil)
+    let hiddenMap = TopologyBuilder.build(
+        sample: hiddenBSSID, status: .connected, ip: config, arp: [router], scan: [],
+        ipObservedAt: now, arpObservedAt: now, scanObservedAt: nil,
+        registry: registry, pinger: pinger, vendors: vendors)
+    expect("missing BSSID still shows the unknown router-to-AP path",
+           hiddenMap.node("fabric") != nil)
+    expect("missing BSSID does not disconnect the AP from the path",
+           hiddenMap.edges.contains { $0.id == "fabric-ap" })
+
+    let combined = sample(rssi: -51, bssid: "00:aa:bb:cc:dd:17")
+    let combinedMap = TopologyBuilder.build(
+        sample: combined, status: .connected, ip: config, arp: [router], scan: [],
+        ipObservedAt: now, arpObservedAt: now, scanObservedAt: nil,
+        registry: registry, pinger: pinger, vendors: vendors)
+    expectEqual("same-chassis inference does not rename the measured router",
+                combinedMap.node("router")?.title, "Router")
+    expectEqual("same-chassis link is explicitly inferred",
+                combinedMap.edges.first { $0.id == "router-ap" }?.confidence, .inferred)
+    expect("same-chassis reasoning is available on a selectable node",
+           combinedMap.node("ap")?.facts.contains { $0.label == "Likely shared chassis" && $0.confidence == .inferred } == true)
+
+    let neighbours = [
+        router,
+        ARPEntry(ip: "192.168.10.30", mac: "00:00:5e:00:00:01", interfaceName: "en0"),
+        ARPEntry(ip: "192.168.10.31", mac: "00:00:5e:00:00:02", interfaceName: "en1"),
+        ARPEntry(ip: "10.0.0.5", mac: "00:00:5e:00:00:03", interfaceName: "en0"),
+        ARPEntry(ip: "192.168.10.20", mac: "11:22:33:44:55:66", interfaceName: "en0")
+    ]
+    let scopedMap = TopologyBuilder.build(
+        sample: combined, status: .connected, ip: config, arp: neighbours, scan: [],
+        ipObservedAt: now, arpObservedAt: now, scanObservedAt: nil,
+        registry: registry, pinger: pinger, vendors: vendors)
+    expectEqual("device cache is limited to this interface and subnet",
+                scopedMap.node("neighbours")?.facts.first { $0.label == "Cached" }?.value, "1")
+
+    let scan = (1...6).map { scannedAP($0, rssi: -40 - $0) }
+    let crowdedMap = TopologyBuilder.build(
+        sample: combined, status: .connected, ip: config, arp: [router], scan: scan,
+        ipObservedAt: now, arpObservedAt: now, scanObservedAt: now,
+        registry: registry, pinger: pinger, vendors: vendors)
+    let strongestID = "peer-\(scan[0].key.raw)"
+    expect("strongest peer gets a stable identity", crowdedMap.node(strongestID) != nil)
+    expectEqual("additional APs collapse into an explicit group",
+                crowdedMap.node("peer-group")?.facts.first { $0.label == "Count" }?.value, "5")
+    expect("large scan results are not silently discarded",
+           crowdedMap.node("peer-group")?.title.contains("5 more") == true)
+    let reorderedMap = TopologyBuilder.build(
+        sample: combined, status: .connected, ip: config, arp: [router], scan: Array(scan.reversed()),
+        ipObservedAt: now, arpObservedAt: now, scanObservedAt: now,
+        registry: registry, pinger: pinger, vendors: vendors)
+    expect("peer identity survives scan reordering", reorderedMap.node(strongestID) != nil)
+
+    let manyNeighbours = [router] + (2...26).map {
+        ARPEntry(ip: "192.168.10.\($0)",
+                 mac: String(format: "00:00:5e:00:01:%02x", $0),
+                 interfaceName: "en0")
+    }
+    let largeCacheMap = TopologyBuilder.build(
+        sample: combined, status: .connected, ip: config, arp: manyNeighbours, scan: [],
+        ipObservedAt: now, arpObservedAt: now, scanObservedAt: nil,
+        registry: registry, pinger: pinger, vendors: vendors)
+    expectEqual("large device cache reports its visible subset",
+                largeCacheMap.node("neighbours")?.facts.first { $0.label == "Showing" }?.value,
+                "14 of 24")
+    expectEqual("large device cache reports omitted rows",
+                largeCacheMap.node("neighbours")?.facts.first { $0.label == "Not listed" }?.value,
+                "10")
+
+    let dated = Fact(label: "Scan", value: "old", observedAt: now, staleAfter: 120)
+    expect("fact freshness becomes stale at its declared threshold",
+           dated.isStale(at: now.addingTimeInterval(121)))
+
+    expect("same /24 subnet accepted",
+           ARPTable.isOnSubnet("192.168.10.200", localAddress: "192.168.10.20", mask: "255.255.255.0"))
+    expect("different /24 subnet rejected",
+           !ARPTable.isOnSubnet("192.168.11.20", localAddress: "192.168.10.20", mask: "255.255.255.0"))
+    expect("malformed IPv4 rejected",
+           !ARPTable.isOnSubnet("192.168.10.999", localAddress: "192.168.10.20", mask: "255.255.255.0"))
+}
+
 @main
 @MainActor
 struct TestRunner {
@@ -210,7 +313,9 @@ struct TestRunner {
         testExports()
         testRoundTrip()
         if CommandLine.arguments.count > 1 {
-            testVendorLookup(databaseURL: URL(fileURLWithPath: CommandLine.arguments[1]))
+            let databaseURL = URL(fileURLWithPath: CommandLine.arguments[1])
+            testVendorLookup(databaseURL: databaseURL)
+            testTopology(databaseURL: databaseURL)
         }
 
         if failures.isEmpty {

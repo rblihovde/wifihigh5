@@ -19,10 +19,11 @@ change rather than something you have to dig out of a log. Dashed vertical
 markers show each transition. Hovering anywhere gives a readout for that instant.
 Optional overlays put the noise floor and the transmit rate on the same plot.
 
-**Network Map** — a vector schematic of the path your traffic actually takes,
-from this Mac through the access point to the router and out. Pan and zoom; each
-node reveals more as you get closer, and clicking one shows everything at once.
-See below.
+**Network Map** — a vector schematic of the current connection path, from this
+Mac through the access point to the router and out, plus clearly bounded local
+evidence. It is not presented as a full network inventory. Pan and zoom; each
+node reveals more as you get closer, clicking one shows its facts, sources and
+ages, and Jump To keeps a large drawing navigable. See below.
 
 **Access Points** — every AP this Mac has associated with, searchable, with the
 signal range seen at each and the nickname, site and notes you gave it.
@@ -75,15 +76,16 @@ What makes it useful is what it refuses to guess. Line style carries confidence:
 | Grey dashed | Not observable — genuinely invisible from here |
 
 So the internet node is always dashed: the app only ever talks to your own
-router, and it will not imply it tested anything upstream. Switches never appear
-as boxes, because they work below the layer this Mac can see — instead the map
-inserts an explicit unobserved segment between access point and router, and that
-gap is where the switching lives.
+router, and it will not imply it tested anything upstream. Because switches work
+below the layer this Mac can see, the map inserts an explicit unobserved segment
+between access point and router. That gap is where switching or controller
+infrastructure may live; it is not invented as known equipment.
 
 One inference it does make: when the router's MAC and the access point's BSSID
 share a vendor prefix and sit within a few addresses of each other, they are
-almost certainly one physical box, and the map merges them. That link is marked
-Inferred and the node shows both addresses so you can judge the reasoning.
+likely one physical box. The logical router and access-point roles remain
+separate, joined by a solid amber Inferred link, and the inspector shows the
+evidence so you can judge the reasoning.
 
 Hardware vendors are resolved against the IEEE MAC registry, which ships inside
 the app. That is what lets the map say your gateway is a WNC Corporation box
@@ -108,9 +110,11 @@ Randomised addresses are never given a vendor. Where the second bit of the first
 octet is set, the address was assigned by software rather than burned in, and
 the map says so instead of naming a manufacturer that would be meaningless.
 
-"Other devices" comes from this Mac's own ARP cache: hosts it has already
-exchanged traffic with. Reading that is passive — no address is probed and the
-subnet is never swept.
+"Other IPv4 devices" comes from this Mac's own ARP cache, restricted to the
+active Wi-Fi interface and local subnet so Ethernet, VPN and bridge entries do
+not get mixed in. It is a bounded recent cache rather than an inventory; quiet
+or IPv6-only hosts may be absent. Reading it is passive — no address is probed
+and the subnet is never swept.
 
 ## Walking a site
 
@@ -202,9 +206,10 @@ Run the tests with:
 ./run-tests.sh
 ```
 
-They cover the arithmetic whose output ends up in front of a client — quality
-thresholds, SNR when the driver reports no noise floor, access point identity
-and the fingerprint fallback, waypoint attribution, and export escaping.
+They cover the arithmetic and topology claims that end up in front of a client:
+quality thresholds, missing noise, access-point identity, waypoint attribution,
+export escaping, no-permission paths, same-chassis confidence, subnet scoping,
+stable map identities, and explicit grouping of large result sets.
 
 
 ## Keyboard shortcuts

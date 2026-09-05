@@ -46,6 +46,17 @@ final class Scanner: ObservableObject {
 
     private let queue = DispatchQueue(label: "wifi.scan", qos: .userInitiated)
 
+    #if DEBUG
+    /// Deterministic nearby-network data for previews and visual regression
+    /// checks. Never compiled into the shipped release binary.
+    func seedPreview(_ previewResults: [ScanResult], scannedAt: Date = Date()) {
+        results = previewResults.sorted { $0.rssi > $1.rssi }
+        lastScan = scannedAt
+        errorMessage = nil
+        isScanning = false
+    }
+    #endif
+
     func scan(currentSSID: String?, currentBSSID: String?) {
         guard !isScanning else { return }
         isScanning = true

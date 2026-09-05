@@ -255,8 +255,9 @@ enum HelpContent {
             category: .networkMap,
             short: "A schematic of the path your traffic takes, drawn only from what this Mac can see.",
             body: [
-                "The map runs from this Mac at the bottom, through the access point serving it, to the router, and out to the internet. Zoom in and every node reveals more of what is known about it; click one to see everything at once regardless of zoom.",
-                "The important thing is what the map refuses to guess. Line style carries confidence, and anything this Mac cannot observe is drawn as unobserved rather than quietly left out — a diagram that looks complete when it isn't is worse than no diagram."
+                "The map runs from this Mac at the bottom, through the access point serving it, to the router, and out to the internet. It is the current connection plus local evidence, not a complete network inventory. Zoom in to reveal more, click a node to see all of its facts and sources, or use Jump To when the drawing is large.",
+                "The important thing is what the map refuses to guess. Line style carries confidence, and anything this Mac cannot observe is drawn as unobserved rather than quietly left out — a diagram that looks complete when it isn't is worse than no diagram.",
+                "Facts gathered at different times show their source and age in the inspector. Nearby access-point readings are snapshots from the last user-requested scan; refresh them after moving around a site."
             ],
             scale: [
                 ("Measured", "solid blue", "Read directly from the system. This is fact."),
@@ -267,17 +268,17 @@ enum HelpContent {
         HelpTopic(
             term: "Router and access point in one box",
             category: .networkMap,
-            short: "When the map merges them, it is reasoning from the MAC addresses.",
+            short: "A likely shared chassis is an inference from the MAC addresses.",
             body: [
                 "Manufacturers assign consecutive hardware addresses to the interfaces of a single chassis. When the router's MAC and the access point's BSSID share a vendor prefix and sit within a few addresses of each other, they are almost certainly the same physical device.",
-                "The map labels that link Inferred rather than Measured, and the node shows the two addresses it compared so you can judge the reasoning yourself.",
-                "On a larger site the two will be separate, and the map then shows an unobserved path between them — that gap is where the switching lives."
+                "Router and access point remain separate logical nodes so their measured roles stay clear. The link between them is solid amber and labelled Inferred, and the access-point inspector shows the addresses and method so you can judge the reasoning yourself.",
+                "On a larger site the link is not assumed. The map shows an unobserved path between the roles instead — that gap is where switching and controller infrastructure may live."
             ]
         ),
         HelpTopic(
-            term: "Why switches never appear",
+            term: "Why the switching path is unknown",
             category: .networkMap,
-            short: "They work below the layer this Mac can see.",
+            short: "Switches work below the layer this Mac can see.",
             body: [
                 "Switches forward frames without taking an IP address in your path, so nothing this Mac sends or receives reveals them. Discovering them needs LLDP or CDP neighbour data, or management access to the switch itself — none of which this app does.",
                 "Rather than drawing a tidy line straight from access point to router and implying there is nothing between, the map inserts an explicit unobserved segment. Anything in that gap is real but invisible from here."
@@ -288,8 +289,8 @@ enum HelpContent {
             category: .networkMap,
             short: "Hosts already in this Mac's ARP cache. Nothing was scanned.",
             body: [
-                "These are neighbours this Mac has already exchanged traffic with in the normal course of being connected. Reading that cache is entirely passive — no address is probed and the subnet is never swept.",
-                "The count is what matters for topology; addresses appear only when you zoom right in or open the node. Note that a device with a randomised MAC is flagged, since it will not match a wired inventory."
+                "These are IPv4 neighbours this Mac has already exchanged traffic with in the normal course of being connected. The list is limited to the active Wi-Fi interface and its current subnet so Ethernet, VPN and virtual-interface entries are not mixed in. Reading the cache is entirely passive — no address is probed and the subnet is never swept.",
+                "This is a recent cache, not a device inventory: quiet hosts and IPv6-only neighbours may be absent. The count is the useful overview; a bounded address list and any omitted count appear when you open the node. A randomised MAC is flagged because it will not match a wired inventory."
             ]
         ),
         HelpTopic(

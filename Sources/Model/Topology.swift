@@ -7,7 +7,7 @@ import SwiftUI
 /// what was reasoned and from what cannot be seen at all. Anything the app
 /// cannot observe is drawn as unobserved rather than quietly omitted, because a
 /// diagram that looks complete when it isn't is worse than no diagram.
-enum Confidence {
+enum Confidence: Equatable {
     case observed      // read directly from the system
     case inferred      // derived from observed facts, stated as such
     case unobserved    // genuinely not visible to this app
@@ -39,7 +39,7 @@ enum Detail: Int, Comparable {
 }
 
 struct Fact: Identifiable {
-    let id = UUID()
+    var id: String
     var label: String
     var value: String
     var detail: Detail = .secondary
@@ -47,16 +47,46 @@ struct Fact: Identifiable {
     /// Sentence-length explanations that would overflow a node plate. They are
     /// kept for the inspector, where there is room to read them.
     var inspectorOnly = false
+    /// Optional evidence metadata. It stays out of the canvas and appears only
+    /// in the inspector, so operators can audit a claim without cluttering the
+    /// normal view.
+    var confidence: Confidence?
+    var source: String?
+    var observedAt: Date?
+    var staleAfter: TimeInterval?
+
+    init(id: String? = nil, label: String, value: String,
+         detail: Detail = .secondary, tint: Color? = nil,
+         inspectorOnly: Bool = false, confidence: Confidence? = nil,
+         source: String? = nil, observedAt: Date? = nil,
+         staleAfter: TimeInterval? = nil) {
+        self.id = id ?? label
+        self.label = label
+        self.value = value
+        self.detail = detail
+        self.tint = tint
+        self.inspectorOnly = inspectorOnly
+        self.confidence = confidence
+        self.source = source
+        self.observedAt = observedAt
+        self.staleAfter = staleAfter
+    }
+
+    func isStale(at date: Date = Date()) -> Bool {
+        guard let observedAt, let staleAfter else { return false }
+        return date.timeIntervalSince(observedAt) > staleAfter
+    }
 }
 
 enum NodeKind {
-    case internet, router, accessPoint, switchFabric, thisMac, neighbours
+    case internet, router, accessPoint, accessPointGroup, switchFabric, thisMac, neighbours
 
     var glyphTitle: String {
         switch self {
         case .internet: return "Internet"
         case .router: return "Router"
         case .accessPoint: return "Access point"
+        case .accessPointGroup: return "Access point group"
         case .switchFabric: return "Unobserved path"
         case .thisMac: return "This Mac"
         case .neighbours: return "Other devices"
@@ -122,13 +152,21 @@ enum TopologyBuilder {
                       ip: IPConfig,
                       arp: [ARPEntry],
                       scan: [ScanResult],
+                      ipObservedAt: Date? = nil,
+                      arpObservedAt: Date? = nil,
+                      scanObservedAt: Date? = nil,
                       registry: APRegistry,
                       pinger: GatewayPinger,
                       vendors: VendorDatabase) -> NetworkMap {
         var map = NetworkMap()
 
         let gatewayIP = ip.router
-        let gatewayEntry = gatewayIP.flatMap { g in arp.first { $0.ip == g } }
+        let activeInterface = sample?.interfaceName ?? ip.primaryInterface
+        let interfaceARP = arp.filter { entry in
+            guard let activeInterface, let owner = entry.interfaceName else { return true }
+            return owner == activeInterface
+        }
+        let gatewayEntry = gatewayIP.flatMap { g in interfaceARP.first { $0.ip == g } }
         let apBSSID = sample?.bssid?.lowercased()
 
         // Router and access point in one box is the common small-site case, and
@@ -153,15 +191,25 @@ enum TopologyBuilder {
 
         var routerFacts: [Fact] = []
         if let g = gatewayIP {
-            routerFacts.append(Fact(label: "Address", value: g, detail: .primary))
+            routerFacts.append(Fact(label: "Address", value: g, detail: .primary,
+                                    confidence: .observed,
+                                    source: "macOS network configuration",
+                                    observedAt: ipObservedAt, staleAfter: 15))
         }
         if let mac = gatewayEntry?.mac {
-            routerFacts.append(Fact(label: "MAC", value: mac, detail: .primary))
+            routerFacts.append(Fact(label: "MAC", value: mac, detail: .primary,
+                                    confidence: .observed,
+                                    source: "Local ARP cache · \(gatewayEntry?.interfaceName ?? activeInterface ?? "active interface")",
+                                    observedAt: arpObservedAt, staleAfter: 15))
             let vendor = vendors.lookup(mac)
             if case .known(let name) = vendor {
-                routerFacts.insert(Fact(label: "Vendor", value: name, detail: .primary), at: 0)
+                routerFacts.insert(Fact(label: "Vendor", value: name, detail: .primary,
+                                        confidence: .inferred,
+                                        source: "Bundled IEEE assignment database"), at: 0)
             } else if let label = vendor.displayName {
-                routerFacts.append(Fact(label: "Vendor", value: label, detail: .secondary, tint: .orange))
+                routerFacts.append(Fact(label: "Vendor", value: label, detail: .secondary,
+                                        tint: .orange, confidence: .inferred,
+                                        source: "Bundled IEEE assignment database"))
             }
             routerFacts.append(Fact(label: "Vendor prefix", value: gatewayEntry!.oui, detail: .full))
             if gatewayEntry!.isLocallyAdministered {
@@ -186,19 +234,25 @@ enum TopologyBuilder {
             routerFacts.append(Fact(label: "Latency",
                                     value: pinger.lastRTT.map { String(format: "%.1f ms", $0) } ?? "timeout",
                                     detail: .primary,
-                                    tint: pinger.lastRTT == nil ? .red : nil))
+                                    tint: pinger.lastRTT == nil ? .red : nil,
+                                    confidence: .observed,
+                                    source: "Optional gateway ping",
+                                    observedAt: pinger.history.last?.0, staleAfter: 3))
             routerFacts.append(Fact(label: "Packet loss",
                                     value: String(format: "%.1f%%", pinger.lossPercent),
                                     detail: .primary,
-                                    tint: pinger.lossPercent > 2 ? .red : nil))
+                                    tint: pinger.lossPercent > 2 ? .red : nil,
+                                    confidence: .inferred,
+                                    source: "Optional gateway ping history",
+                                    observedAt: pinger.history.last?.0, staleAfter: 3))
         }
 
         map.nodes.append(MapNode(
             id: "router", kind: .router,
-            title: sameChassis ? "Router + access point" : "Router",
+            title: "Router",
             subtitle: gatewayIP,
             facts: routerFacts,
-            confidence: gatewayEntry != nil ? .observed : .inferred,
+            confidence: gatewayIP != nil ? .observed : .inferred,
             column: 0, row: 1))
 
         map.edges.append(MapEdge(id: "wan", from: "internet", to: "router",
@@ -210,7 +264,7 @@ enum TopologyBuilder {
         // MARK: The path between router and access point
 
         let apRow: Double = 3
-        if !sameChassis, apBSSID != nil {
+        if !sameChassis, sample != nil, status == .connected {
             // Switches and controllers live here and are invisible at layer 3.
             map.nodes.append(MapNode(
                 id: "fabric", kind: .switchFabric,
@@ -232,21 +286,33 @@ enum TopologyBuilder {
         if let s = sample, status == .connected {
             let key = s.apKey
             var apFacts: [Fact] = [
-                Fact(label: "Signal", value: "\(s.rssi) dBm", detail: .primary, tint: s.quality.color),
-                Fact(label: "Quality", value: s.quality.label, detail: .primary, tint: s.quality.color)
+                Fact(label: "Signal", value: "\(s.rssi) dBm", detail: .primary,
+                     tint: s.quality.color, confidence: .observed,
+                     source: "Current Wi-Fi link", observedAt: s.time, staleAfter: 5),
+                Fact(label: "Quality", value: s.quality.label, detail: .primary,
+                     tint: s.quality.color, confidence: .inferred,
+                     source: "Derived from current signal", observedAt: s.time, staleAfter: 5)
             ]
             if let snr = s.snr {
                 apFacts.append(Fact(label: "Clarity (SNR)", value: "\(snr) dB", detail: .primary,
-                                    tint: s.snrQuality?.color))
+                                    tint: s.snrQuality?.color, confidence: .inferred,
+                                    source: "Signal minus reported noise",
+                                    observedAt: s.time, staleAfter: 5))
             }
             apFacts.append(Fact(label: "BSSID", value: s.bssid ?? "Withheld",
-                                detail: .primary, tint: s.bssid == nil ? .orange : nil))
+                                detail: .primary, tint: s.bssid == nil ? .orange : nil,
+                                confidence: .observed, source: "Current Wi-Fi link",
+                                observedAt: s.time, staleAfter: 5))
             if let bssid = s.bssid {
                 let vendor = vendors.lookup(bssid)
                 if case .known(let name) = vendor {
-                    apFacts.append(Fact(label: "Vendor", value: name, detail: .primary))
+                    apFacts.append(Fact(label: "Vendor", value: name, detail: .primary,
+                                        confidence: .inferred,
+                                        source: "Bundled IEEE assignment database"))
                 } else if let label = vendor.displayName {
-                    apFacts.append(Fact(label: "Vendor", value: label, detail: .secondary, tint: .orange))
+                    apFacts.append(Fact(label: "Vendor", value: label, detail: .secondary,
+                                        tint: .orange, confidence: .inferred,
+                                        source: "Bundled IEEE assignment database"))
                 }
             }
             apFacts.append(Fact(label: "Network", value: s.ssid ?? "Withheld", detail: .secondary))
@@ -263,9 +329,13 @@ enum TopologyBuilder {
                 apFacts.append(Fact(label: "Regulatory domain", value: country, detail: .full))
             }
             if sameChassis {
-                apFacts.append(Fact(label: "Chassis",
-                                    value: "MAC sits beside the router's, so this radio is almost certainly inside the same box.",
-                                    detail: .secondary, tint: .orange, inspectorOnly: true))
+                apFacts.append(Fact(label: "Likely shared chassis",
+                                    value: "Router \(gatewayEntry?.mac ?? "—") and radio \(s.bssid ?? "—") share their first five octets and are within eight addresses. That often means one physical box, but only equipment inventory can confirm it.",
+                                    detail: .secondary, tint: .orange, inspectorOnly: true,
+                                    confidence: .inferred,
+                                    source: "Compared gateway ARP entry with connected BSSID",
+                                    observedAt: arpObservedAt.map { min(s.time, $0) } ?? s.time,
+                                    staleAfter: 15))
             }
 
             map.nodes.append(MapNode(
@@ -282,14 +352,18 @@ enum TopologyBuilder {
                                          kind: .sameChassis,
                                          facts: [Fact(label: "Evidence", value: "Router MAC \(gatewayEntry?.mac ?? "") and BSSID \(s.bssid ?? "") differ only in the final octet.", detail: .secondary, inspectorOnly: true)],
                                          confidence: .inferred,
-                                         caption: "one device"))
+                                         caption: "likely one device"))
             }
 
             // MARK: This Mac
 
             var macFacts: [Fact] = [
-                Fact(label: "Address", value: ip.ipv4 ?? "—", detail: .primary),
-                Fact(label: "Interface", value: s.interfaceName, detail: .secondary)
+                Fact(label: "Address", value: ip.ipv4 ?? "—", detail: .primary,
+                     confidence: .observed, source: "macOS network configuration",
+                     observedAt: ipObservedAt, staleAfter: 15),
+                Fact(label: "Interface", value: s.interfaceName, detail: .secondary,
+                     confidence: .observed, source: "Current Wi-Fi link",
+                     observedAt: s.time, staleAfter: 5)
             ]
             if let active = ip.activeMAC {
                 macFacts.append(Fact(label: "MAC on the wire", value: active, detail: .secondary))
@@ -332,49 +406,127 @@ enum TopologyBuilder {
 
         // MARK: Peer access points found by a scan
 
-        let peers = scan.filter { r in
+        let matchingPeers = scan.filter { r in
             guard let ssid = sample?.ssid, r.ssid == ssid else { return false }
             return r.bssid?.lowercased() != apBSSID
-        }.sorted { $0.rssi > $1.rssi }
+        }
+        // CoreWLAN can occasionally return the same BSSID twice during a roam.
+        // Keep the strongest copy so node identity and selection remain stable.
+        var bestPeerByKey: [APKey: ScanResult] = [:]
+        for peer in matchingPeers where peer.rssi > (bestPeerByKey[peer.key]?.rssi ?? Int.min) {
+            bestPeerByKey[peer.key] = peer
+        }
+        let peers = bestPeerByKey.values.sorted {
+            $0.rssi == $1.rssi ? $0.key.raw < $1.key.raw : $0.rssi > $1.rssi
+        }
+        let branchNode = sameChassis ? "router" : (map.node("fabric") == nil ? "router" : "fabric")
+        let peerRow = sameChassis ? 2.0 : apRow
+        let scanAge = scanObservedAt.map { Fmt.relativeTime($0, now: map.generated) } ?? "Time unavailable"
+        let scanIsStale = scanObservedAt.map { map.generated.timeIntervalSince($0) > 120 } ?? !scan.isEmpty
 
-        for (i, peer) in peers.prefix(4).enumerated() {
-            let id = "peer-\(i)"
+        if let peer = peers.first {
+            let id = "peer-\(peer.key.raw)"
             map.nodes.append(MapNode(
                 id: id, kind: .accessPoint,
                 title: registry.nickname(for: peer.key) ?? (peer.bssid.map(Fmt.shortMAC) ?? "Peer AP"),
-                subtitle: "Same network, not associated",
+                subtitle: "Same network · not connected",
                 facts: [
-                    Fact(label: "Signal here", value: "\(peer.rssi) dBm", detail: .primary, tint: peer.quality.color),
-                    Fact(label: "BSSID", value: peer.bssid ?? "—", detail: .primary),
+                    Fact(label: "Scanned signal", value: "\(peer.rssi) dBm", detail: .primary,
+                         tint: peer.quality.color, confidence: .observed,
+                         source: "User-initiated nearby-network scan",
+                         observedAt: scanObservedAt, staleAfter: 120),
+                    Fact(label: "Scan age", value: scanAge, detail: .primary,
+                         tint: scanIsStale ? .orange : nil,
+                         confidence: .observed, source: "Nearby-network scan",
+                         observedAt: scanObservedAt, staleAfter: 120),
+                    Fact(label: "BSSID", value: peer.bssid ?? "—", detail: .secondary),
                     Fact(label: "Channel", value: "\(peer.channel) · \(peer.band.label)", detail: .secondary),
                     Fact(label: "Role", value: "A radio you could roam to. Its path back to the router is not visible from here.", detail: .secondary, inspectorOnly: true)
                 ],
                 confidence: .observed,
-                column: Double(i + 1) * 1.15 + 0.35,
-                row: sameChassis ? 2 : apRow,
+                column: 1.15,
+                row: peerRow,
                 accent: registry.color(for: peer.key)))
 
-            map.edges.append(MapEdge(id: "peer-link-\(i)",
-                                     from: sameChassis ? "router" : "fabric",
+            map.edges.append(MapEdge(id: "peer-link-\(peer.key.raw)",
+                                     from: branchNode,
                                      to: id, kind: .unobserved,
                                      confidence: .unobserved,
                                      caption: "path unknown"))
         }
 
+        let additionalPeers = Array(peers.dropFirst())
+        if !additionalPeers.isEmpty {
+            let shown = min(additionalPeers.count, 12)
+            var facts: [Fact] = [
+                Fact(label: "Count", value: "\(additionalPeers.count)", detail: .primary),
+                Fact(label: "Scan age", value: scanAge, detail: .primary,
+                     tint: scanIsStale ? .orange : nil,
+                     confidence: .observed, source: "Nearby-network scan",
+                     observedAt: scanObservedAt, staleAfter: 120),
+                Fact(label: "Showing", value: "\(shown) of \(additionalPeers.count)", detail: .secondary)
+            ]
+            for peer in additionalPeers.prefix(shown) {
+                let name = registry.nickname(for: peer.key) ?? (peer.bssid.map(Fmt.shortMAC) ?? "Peer AP")
+                facts.append(Fact(id: "peer-\(peer.key.raw)", label: name,
+                                  value: "\(peer.rssi) dBm · ch \(peer.channel)",
+                                  detail: .full, tint: peer.quality.color,
+                                  confidence: .observed,
+                                  source: "User-initiated nearby-network scan",
+                                  observedAt: scanObservedAt, staleAfter: 120))
+            }
+            if additionalPeers.count > shown {
+                facts.append(Fact(label: "Not listed", value: "\(additionalPeers.count - shown)",
+                                  detail: .full, tint: .orange))
+            }
+            map.nodes.append(MapNode(
+                id: "peer-group", kind: .accessPointGroup,
+                title: "\(additionalPeers.count) more access point\(additionalPeers.count == 1 ? "" : "s")",
+                subtitle: "Same network · scan results",
+                facts: facts, confidence: .observed,
+                column: 2.3, row: peerRow))
+            map.edges.append(MapEdge(id: "peer-group-link", from: branchNode,
+                                     to: "peer-group", kind: .unobserved,
+                                     confidence: .unobserved, caption: "paths unknown"))
+        }
+
         // MARK: Other devices already known to this Mac
 
-        let neighbours = arp.filter { $0.ip != gatewayIP }
+        let neighbours: [ARPEntry] = {
+            guard let localAddress = ip.ipv4, let mask = ip.subnetMask else { return [] }
+            var byAddress: [String: ARPEntry] = [:]
+            for entry in interfaceARP where
+                entry.ip != gatewayIP && entry.ip != localAddress &&
+                ARPTable.isOnSubnet(entry.ip, localAddress: localAddress, mask: mask) {
+                byAddress[entry.ip] = entry
+            }
+            return byAddress.values.sorted {
+                $0.ip.localizedStandardCompare($1.ip) == .orderedAscending
+            }
+        }()
         if !neighbours.isEmpty {
+            let shown = min(neighbours.count, 14)
             var facts: [Fact] = [
-                Fact(label: "Count", value: "\(neighbours.count)", detail: .primary),
-                Fact(label: "How", value: "Read from this Mac's own ARP cache. These hosts were learned from traffic that already happened — nothing was scanned or probed.", detail: .secondary, inspectorOnly: true)
+                Fact(label: "Cached", value: "\(neighbours.count)", detail: .primary,
+                     confidence: .observed, source: "Local ARP cache",
+                     observedAt: arpObservedAt, staleAfter: 15),
+                Fact(label: "Showing", value: "\(shown) of \(neighbours.count)", detail: .secondary),
+                Fact(label: "Scope", value: "IPv4 · \(activeInterface ?? "active interface") · local subnet", detail: .secondary),
+                Fact(label: "How", value: "Read from this Mac's own ARP cache on the active Wi-Fi subnet. These entries came from earlier traffic; the app did not sweep or probe the network.", detail: .secondary, inspectorOnly: true)
             ]
-            for n in neighbours.prefix(14) {
+            for n in neighbours.prefix(shown) {
                 let vendor = vendors.lookup(n.mac)
                 facts.append(Fact(label: n.ip,
                                   value: vendor.displayName ?? n.mac,
                                   detail: .full,
-                                  tint: vendor == .randomised ? .orange : nil))
+                                  tint: vendor == .randomised ? .orange : nil,
+                                  confidence: vendor.displayName == nil ? .observed : .inferred,
+                                  source: vendor.displayName == nil ? "Local ARP cache" : "Local ARP cache · bundled IEEE lookup",
+                                  observedAt: arpObservedAt, staleAfter: 15))
+            }
+            if neighbours.count > shown {
+                facts.append(Fact(label: "Not listed", value: "\(neighbours.count - shown)",
+                                  detail: .full, tint: .orange))
             }
             // A count of how many neighbours could actually be identified says
             // something useful on its own: lots of randomised addresses means a
@@ -383,20 +535,30 @@ enum TopologyBuilder {
             facts.insert(Fact(label: "Identified", value: "\(named) of \(neighbours.count)", detail: .secondary), at: 1)
             map.nodes.append(MapNode(
                 id: "neighbours", kind: .neighbours,
-                title: "Other devices",
-                subtitle: "\(neighbours.count) seen",
+                title: "Other IPv4 devices",
+                subtitle: "\(neighbours.count) cached on this subnet",
                 facts: facts, confidence: .observed,
-                column: -1.35, row: sameChassis ? 2 : apRow))
-            map.edges.append(MapEdge(id: "router-neighbours", from: "router", to: "neighbours",
+                column: -1.15, row: peerRow))
+            map.edges.append(MapEdge(id: "router-neighbours", from: branchNode, to: "neighbours",
                                      kind: .unobserved, confidence: .unobserved,
                                      caption: "paths unknown"))
         }
 
-        if scan.isEmpty {
-            map.notes.append("Run a scan from Nearby Networks to add the other access points serving this network.")
+        if status == .connected, sample?.ssid != nil {
+            if scan.isEmpty {
+                map.notes.append("Use Find access points in this toolbar to add other radios serving the current network.")
+            } else if peers.isEmpty {
+                map.notes.append("The last nearby-network scan found no other access points advertising the current network name. Refresh after moving to update that result.")
+            }
         }
         if sample?.bssid == nil, status == .connected {
             map.notes.append("Without Location Services the access point cannot be identified by BSSID, so router-and-AP-in-one-box cannot be confirmed.")
+        }
+        if sample?.ssid == nil, status == .connected {
+            map.notes.append("macOS is withholding the network name, so a nearby scan cannot safely decide which radios serve this connection.")
+        }
+        if !ip.ipv6.isEmpty {
+            map.notes.append("The device group currently reflects the IPv4 ARP cache only; IPv6 neighbours are not included.")
         }
         return map
     }

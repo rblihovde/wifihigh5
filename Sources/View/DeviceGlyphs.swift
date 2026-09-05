@@ -21,6 +21,7 @@ enum DeviceGlyph {
         case .internet:     return cloud(r)
         case .router:       return router(r)
         case .accessPoint:  return accessPoint(r)
+        case .accessPointGroup: return accessPointGroup(r)
         case .switchFabric: return fabric(r)
         case .thisMac:      return laptop(r)
         case .neighbours:   return devices(r)
@@ -102,6 +103,19 @@ enum DeviceGlyph {
             _ = i
         }
         d.accent = acc
+        return d
+    }
+
+    private static func accessPointGroup(_ r: CGRect) -> Drawing {
+        var d = accessPoint(r)
+        var detail = d.detail
+        // Two quiet offset outlines communicate a collapsed group while the
+        // foreground radio remains the same familiar AP symbol.
+        detail.addRoundedRect(in: rect(r, 0.11, 0.63, 0.64, 0.16),
+                              cornerSize: CGSize(width: r.width * 0.07, height: r.width * 0.07))
+        detail.addRoundedRect(in: rect(r, 0.25, 0.49, 0.64, 0.16),
+                              cornerSize: CGSize(width: r.width * 0.07, height: r.width * 0.07))
+        d.detail = detail
         return d
     }
 

@@ -643,6 +643,7 @@ struct NetworkMapView: View {
                             Text(fact.label.uppercased())
                                 .font(.system(size: 8, weight: .semibold)).tracking(0.4)
                                 .foregroundStyle(.secondary)
+                                .explains(fact.label)
                             Text(fact.value)
                                 .font(.system(size: 11, design: fact.value.count > 40 ? .default : .monospaced))
                                 .foregroundStyle(fact.tint ?? .primary)

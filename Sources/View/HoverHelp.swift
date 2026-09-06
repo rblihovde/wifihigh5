@@ -11,8 +11,16 @@ enum HoverHelpSetting {
 /// The text comes from the same topics as the Help window, so the two cannot
 /// disagree. Labels with no matching topic get no tooltip and no hover
 /// affordance at all, rather than an approximate one.
+enum HoverHelpAffordance {
+    /// A faint underline, for a single word such as a column heading.
+    case underline
+    /// A faint background wash, for a whole row or tile.
+    case highlight
+}
+
 private struct HoverHelpModifier: ViewModifier {
     let label: String
+    let affordance: HoverHelpAffordance
     @AppStorage(HoverHelpSetting.key) private var enabled = true
     @State private var hovering = false
     @State private var showing = false
@@ -24,14 +32,25 @@ private struct HoverHelpModifier: ViewModifier {
             content
                 // A faint underline only while hovering, so the affordance is
                 // discoverable without cluttering a dense readout.
+                .background {
+                    if hovering, affordance == .highlight {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.secondary.opacity(0.10))
+                            .padding(.horizontal, -5)
+                            .padding(.vertical, -2)
+                    }
+                }
                 .overlay(alignment: .bottom) {
-                    if hovering {
+                    if hovering, affordance == .underline {
                         Rectangle()
                             .fill(Color.secondary.opacity(0.4))
                             .frame(height: 1)
                             .offset(y: 2)
                     }
                 }
+                // Without this the pointer only registers over the glyphs
+                // themselves, so the gaps in a row would silently do nothing.
+                .contentShape(Rectangle())
                 .onHover { isInside in
                     hovering = isInside
                     if isInside {
@@ -94,7 +113,8 @@ struct HoverHelpCard: View {
 
 extension View {
     /// Attaches the hover explanation for a reading, looked up by its label.
-    func explains(_ label: String) -> some View {
-        modifier(HoverHelpModifier(label: label))
+    func explains(_ label: String,
+                  affordance: HoverHelpAffordance = .underline) -> some View {
+        modifier(HoverHelpModifier(label: label, affordance: affordance))
     }
 }

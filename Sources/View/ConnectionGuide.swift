@@ -111,7 +111,6 @@ struct ConnectionGuide: View {
                 Text(label)
                     .font(.system(size: 9.5))
                     .foregroundStyle(.secondary)
-                    .explains(label)
                 Text("\(status) · \(value)")
                     .font(.system(size: 10.5, weight: .semibold))
                     .lineLimit(1)
@@ -122,6 +121,7 @@ struct ConnectionGuide: View {
         .background(Color.hairline.opacity(0.20), in: RoundedRectangle(cornerRadius: 7))
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityLabel("\(label), \(status), \(value)")
+        .explains(label, affordance: .highlight)
     }
 
     private func verdict(for sample: WiFiSample, recent: WiFiMonitor.Stats?) -> Verdict {

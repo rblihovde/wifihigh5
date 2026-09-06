@@ -107,6 +107,17 @@ if ! grep -q "app-sandbox" <<<"${BUNDLE_ENTITLEMENTS}"; then
     exit 1
 fi
 
+# The application identifier must be signed into the bundle, not merely present
+# in the profile, or the upload is accepted but the build cannot go to
+# TestFlight (warning 90886).
+PROFILE_APP_ID=$(security cms -D -i "${PROFILE}" 2>/dev/null \
+    | plutil -extract Entitlements.com\\.apple\\.application-identifier raw -o - - 2>/dev/null || true)
+if [ -n "${PROFILE_APP_ID}" ] && ! grep -Fq "${PROFILE_APP_ID}" <<<"${BUNDLE_ENTITLEMENTS}"; then
+    echo "!! The signed bundle is missing com.apple.application-identifier" >&2
+    echo "   (${PROFILE_APP_ID}); it would be ineligible for TestFlight." >&2
+    exit 1
+fi
+
 echo "==> Building installer package"
 productbuild --component "${BUNDLE}" /Applications \
     --sign "${PKG_CERT}" \
@@ -116,8 +127,8 @@ echo
 echo "==> Built ${PKG}"
 echo
 echo "    Validate:  xcrun altool --validate-app -f \"${PKG}\" -t macos \\"
-echo "                   --apple-id <your-apple-id> --password <app-specific-password>"
+echo "                   -u <your-apple-id> -p @keychain:AC_PASSWORD"
 echo "    Upload:    xcrun altool --upload-app  -f \"${PKG}\" -t macos \\"
-echo "                   --apple-id <your-apple-id> --password <app-specific-password>"
+echo "                   -u <your-apple-id> -p @keychain:AC_PASSWORD"
 echo
 echo "    Or drag the .pkg into Transporter.app from the Mac App Store."

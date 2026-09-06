@@ -2,6 +2,16 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- Must match the provisioning profile exactly. Without these two the
+         upload still succeeds, but the build is rejected for TestFlight:
+         "the signature ... is missing an application identifier but has an
+         application identifier in the provisioning profile" (warning 90886). -->
+    <key>com.apple.application-identifier</key>
+    <string>A826N9S2WM.com.rblihovde.wifihigh5</string>
+
+    <key>com.apple.developer.team-identifier</key>
+    <string>A826N9S2WM</string>
+
     <!-- Mandatory for the Mac App Store. Verified against every API this app
          uses: CoreWLAN reads and scans, SCDynamicStore, the ARP table via
          sysctl, ICMP datagram sockets and getifaddrs all work inside it. -->

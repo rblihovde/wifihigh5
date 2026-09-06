@@ -615,9 +615,11 @@ private func testVendorLookup(databaseURL: URL) {
                 db.lookup("00-1B-63-11-22-33"), .known("Apple, Inc"))
 
     // The locally-administered bit must win before any table is consulted.
+    // These are constructed, not observed: 0x0a and 0x9a both carry the
+    // locally-administered bit and no real device is named by either.
     expectEqual("randomised address is not attributed",
-                db.lookup("ba:fa:e3:4f:e3:07"), .randomised)
-    expectEqual("another randomised address", db.lookup("92:ad:65:79:a9:1c"), .randomised)
+                db.lookup("0a:00:5e:00:53:07"), .randomised)
+    expectEqual("another randomised address", db.lookup("9a:00:5e:00:53:1c"), .randomised)
 
     // 02 is set on the first octet of every locally administered address.
     expectEqual("locally administered bit detected",

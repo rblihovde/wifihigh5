@@ -169,7 +169,6 @@ Run the tests with:
 The tests cover signal calculations, AP identity, waypoints, export escaping,
 permission states, subnet limits, topology, and large result sets.
 
-
 ## Keyboard shortcuts
 
 | Shortcut | Action |

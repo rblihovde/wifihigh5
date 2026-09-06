@@ -346,6 +346,223 @@ private func testTopology(databaseURL: URL) {
            !ARPTable.likelySameChassis("00:00:00:00:00:00", "00:00:00:00:00:01"))
 }
 
+// MARK: Device address keys
+
+@MainActor
+private func testDeviceKeys() {
+    expectEqual("uppercase MAC normalises",
+                DeviceRegistry.normalise("AA:BB:CC:DD:EE:FF"), "aa:bb:cc:dd:ee:ff")
+    expectEqual("dashed MAC normalises",
+                DeviceRegistry.normalise("aa-bb-cc-dd-ee-ff"), "aa:bb:cc:dd:ee:ff")
+    expectEqual("short octets are padded",
+                DeviceRegistry.normalise("a:b:c:d:e:f"), "0a:0b:0c:0d:0e:0f")
+    expectEqual("a malformed address is left alone rather than corrupted",
+                DeviceRegistry.normalise("not-a-mac"), "not-a-mac")
+}
+
+// MARK: Device roles
+
+@MainActor
+private func testDeviceRoles() {
+    var config = IPConfig()
+    config.ipv4 = "192.168.1.50"
+    config.subnetMask = "255.255.255.0"
+    config.router = "192.168.1.1"
+    config.dhcpServer = "192.168.1.5"
+    config.dnsServers = ["192.168.1.1", "192.168.1.9"]
+
+    expectEqual("this Mac is identified before anything else",
+                DeviceRoleResolver.role(forMAC: "aa:bb:cc:dd:ee:01", ip: "192.168.1.50",
+                                        config: config, bssid: nil, isSelf: true),
+                .thisMac)
+
+    expectEqual("the gateway address is the router",
+                DeviceRoleResolver.role(forMAC: "aa:bb:cc:dd:ee:10", ip: "192.168.1.1",
+                                        config: config, bssid: nil),
+                .router)
+
+    // The BSSID sits in the same vendor block, two addresses along: one chassis.
+    // The prefix must be a real burned-in one, since adjacency between
+    // software-assigned addresses proves nothing about shared hardware.
+    expectEqual("a gateway adjacent to the BSSID is one box doing both jobs",
+                DeviceRoleResolver.role(forMAC: "00:1b:63:dd:ee:10", ip: "192.168.1.1",
+                                        config: config, bssid: "00:1b:63:dd:ee:12"),
+                .routerAndAccessPoint)
+
+    expectEqual("a distant BSSID does not merge the router and the access point",
+                DeviceRoleResolver.role(forMAC: "00:1b:63:dd:ee:10", ip: "192.168.1.1",
+                                        config: config, bssid: "11:22:33:44:55:66"),
+                .router)
+
+    expectEqual("adjacency between locally administered addresses infers nothing",
+                DeviceRoleResolver.role(forMAC: "aa:bb:cc:dd:ee:10", ip: "192.168.1.1",
+                                        config: config, bssid: "aa:bb:cc:dd:ee:12"),
+                .router)
+
+    expectEqual("a host matching the BSSID exactly is the access point",
+                DeviceRoleResolver.role(forMAC: "AA:BB:CC:DD:EE:20", ip: "192.168.1.20",
+                                        config: config, bssid: "aa:bb:cc:dd:ee:20"),
+                .accessPoint)
+
+    expectEqual("the lease issuer is the DHCP server",
+                DeviceRoleResolver.role(forMAC: "aa:bb:cc:dd:ee:05", ip: "192.168.1.5",
+                                        config: config, bssid: nil),
+                .dhcpServer)
+
+    expectEqual("a listed name server is the DNS server",
+                DeviceRoleResolver.role(forMAC: "aa:bb:cc:dd:ee:09", ip: "192.168.1.9",
+                                        config: config, bssid: nil),
+                .dnsServer)
+
+    expectEqual("anything else is just an observed device",
+                DeviceRoleResolver.role(forMAC: "aa:bb:cc:dd:ee:63", ip: "192.168.1.99",
+                                        config: config, bssid: nil),
+                .device)
+
+    expect("infrastructure sorts above ordinary hosts",
+           DeviceRole.router.sortRank < DeviceRole.device.sortRank)
+    expect("this Mac sorts to the very top",
+           DeviceRole.thisMac.sortRank < DeviceRole.router.sortRank)
+}
+
+// MARK: Arrivals and departures
+
+@MainActor
+private func testDevicePresence() {
+    let presence = DevicePresence()
+    let base = Date(timeIntervalSince1970: 1_700_000_000)
+    let a = ARPEntry(ip: "192.168.1.10", mac: "aa:bb:cc:00:00:01", interfaceName: "en0")
+    let b = ARPEntry(ip: "192.168.1.11", mac: "aa:bb:cc:00:00:02", interfaceName: "en0")
+
+    presence.note([a], now: base)
+    expect("the first read is a baseline, not an arrival",
+           presence.sighting(forMAC: a.mac)?.arrivedWhileWatching == false)
+    expectEqual("nothing has arrived yet", presence.arrivedCount, 0)
+
+    presence.note([a, b], now: base.addingTimeInterval(5))
+    expect("a device seen only in a later read arrived while watching",
+           presence.sighting(forMAC: b.mac)?.arrivedWhileWatching == true)
+    expectEqual("one arrival is counted", presence.arrivedCount, 1)
+
+    // One missing read is a gap, not a departure: the cache expires idle
+    // entries on its own schedule.
+    presence.note([a], now: base.addingTimeInterval(10))
+    expect("a single miss does not declare a device gone",
+           presence.sighting(forMAC: b.mac)?.isPresent == true)
+    expectEqual("no departures after one miss", presence.departedCount, 0)
+
+    presence.note([a], now: base.addingTimeInterval(15))
+    expect("two consecutive misses declare a device gone",
+           presence.sighting(forMAC: b.mac)?.isPresent == false)
+    expectEqual("one departure is counted", presence.departedCount, 1)
+    expectEqual("the departed device is still described", presence.departed.count, 1)
+
+    // Case differences in the cache must not create a second identity.
+    presence.note([ARPEntry(ip: "192.168.1.10", mac: "AA:BB:CC:00:00:01", interfaceName: "en0")],
+                  now: base.addingTimeInterval(20))
+    expectEqual("a re-cased address is the same device", presence.sightings.count, 2)
+
+    presence.reset(now: base.addingTimeInterval(25))
+    expectEqual("a network change clears the history", presence.sightings.count, 0)
+    expectEqual("a network change clears the read count", presence.readCount, 0)
+}
+
+// MARK: Device labels stay local and deliberate
+
+@MainActor
+private func testDeviceRegistry() {
+    let folder = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("wifihigh5-tests-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+
+    let registry = DeviceRegistry(folder: folder)
+    let file = folder.appendingPathComponent("observed-devices.json")
+    let mac = "AA:BB:CC:11:22:33"
+
+    registry.saveNow()
+    expect("an unlabelled network leaves no file behind",
+           !FileManager.default.fileExists(atPath: file.path))
+
+    registry.setNickname("Reception printer", forMAC: mac, currentIP: "192.168.1.40")
+    expectEqual("the name is stored against the normalised address",
+                registry.nickname(forMAC: "aa-bb-cc-11-22-33"), "Reception printer")
+
+    registry.setCategory(.printer, forMAC: mac)
+    expectEqual("the type is kept", registry.category(forMAC: mac), .printer)
+
+    registry.saveNow()
+    expect("a labelled device is written to disk",
+           FileManager.default.fileExists(atPath: file.path))
+
+    let reloaded = DeviceRegistry(folder: folder)
+    expectEqual("labels survive a relaunch",
+                reloaded.nickname(forMAC: mac), "Reception printer")
+    expectEqual("types survive a relaunch", reloaded.category(forMAC: mac), .printer)
+
+    // Clearing every field forgets the device rather than leaving a husk.
+    reloaded.setNickname("", forMAC: mac)
+    expect("clearing the name alone keeps a device that still has a type",
+           reloaded.record(forMAC: mac) != nil)
+    reloaded.setCategory(.unlabelled, forMAC: mac)
+    expect("a device with nothing said about it is forgotten",
+           reloaded.record(forMAC: mac) == nil)
+
+    reloaded.saveNow()
+    expect("forgetting the last label removes the file",
+           !FileManager.default.fileExists(atPath: file.path))
+
+    // Import must never overwrite names already on this Mac.
+    let mine = DeviceRegistry(folder: folder)
+    mine.setNickname("Mine", forMAC: mac)
+    let theirs = DeviceRegistry(
+        folder: folder.appendingPathComponent("other", isDirectory: true))
+    theirs.setNickname("Theirs", forMAC: mac)
+    theirs.setNickname("New device", forMAC: "aa:bb:cc:99:99:99")
+    if let data = theirs.exportJSON() {
+        expectEqual("only the unseen device is imported", mine.importJSON(data), 1)
+        expectEqual("an existing name is never overwritten by an import",
+                    mine.nickname(forMAC: mac), "Mine")
+        expectEqual("the new device arrives with its name",
+                    mine.nickname(forMAC: "aa:bb:cc:99:99:99"), "New device")
+    } else {
+        expect("labels can be exported", false)
+    }
+    expectEqual("a rejected file is reported rather than throwing",
+                mine.importJSON(Data("not json".utf8)), nil)
+}
+
+// MARK: Device CSV
+
+@MainActor
+private func testDeviceCSV() {
+    let device = ObservedDevice(
+        mac: "aa:bb:cc:dd:ee:ff",
+        ip: "192.168.1.40",
+        role: .device,
+        record: DeviceRecord(macKey: "aa:bb:cc:dd:ee:ff",
+                             nickname: "Reception, printer",
+                             notes: "Says \"out of paper\"",
+                             categoryRaw: DeviceCategory.printer.rawValue),
+        vendor: .known("Example Corp"),
+        sighting: nil,
+        isLocallyAdministered: false,
+        isPresent: true)
+
+    let csv = ReportBuilder.deviceCSV([device], networkName: "Acme-Corp")
+    let lines = csv.split(separator: "\n", omittingEmptySubsequences: false)
+
+    expect("the export says how the data was gathered",
+           csv.contains("No device was probed"))
+    expect("a comma in a name cannot break the columns",
+           csv.contains("\"Reception, printer\""))
+    expect("a quote in a note is escaped rather than ending the field",
+           csv.contains("\"\"out of paper\"\""))
+    expect("the manufacturer is carried through", csv.contains("Example Corp"))
+    expect("the type the user chose is carried through", csv.contains("Printer"))
+    expectEqual("one comment block, one header and one device row",
+                lines.filter { !$0.isEmpty }.count, 6)
+}
+
 @main
 @MainActor
 struct TestRunner {
@@ -358,6 +575,11 @@ struct TestRunner {
         testExports()
         testRoundTrip()
         testHelpIndex()
+        testDeviceKeys()
+        testDeviceRoles()
+        testDevicePresence()
+        testDeviceRegistry()
+        testDeviceCSV()
         if CommandLine.arguments.count > 1 {
             let databaseURL = URL(fileURLWithPath: CommandLine.arguments[1])
             testVendorLookup(databaseURL: databaseURL)

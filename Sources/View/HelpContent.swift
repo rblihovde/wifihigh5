@@ -287,10 +287,43 @@ enum HelpContent {
         HelpTopic(
             term: "Observed devices",
             category: .networkMap,
-            short: "Hosts already in this Mac's ARP cache. Nothing was scanned.",
+            short: "Hosts already in this Mac's neighbour cache. Nothing was scanned.",
             body: [
-                "These are IPv4 neighbors from the Mac's ARP cache. The app limits the list to the active Wi-Fi interface and subnet. Refresh Cache reads the cache again. It does not probe these addresses.",
-                "This is a recent cache, not a device inventory. Quiet, isolated, and IPv6-only neighbours may be absent. A randomised MAC is flagged because it will not identify a hardware manufacturer."
+                "These are IPv4 neighbours from the cache macOS already keeps for hosts this Mac has exchanged traffic with. The app limits the list to the active Wi-Fi interface and subnet. Refresh Cache reads that cache again. It never probes an address, sweeps a range, or opens a port.",
+                "This is a recent cache, not a device inventory. A device that has been quiet, is isolated by client isolation, or speaks only IPv6 will not appear. Absence from this list is not evidence that a device is absent from the network.",
+                "Roles are taken from settings this Mac already holds: the gateway it was told to use, the DHCP server that issued its lease, the name servers it was given, and the BSSID of the radio it is associated with. When the gateway's address sits in the same vendor block and within a few addresses of that BSSID, one box is doing both jobs and the row says so.",
+                "Arrived and dropped out are worked out by comparing successive reads. Everything in the first read is treated as already present; anything appearing later arrived while you were watching. A device is only called gone after it has been missing from two consecutive reads, because the cache expires idle entries on its own schedule.",
+                "This history lives in memory and lasts as long as the app is running. It is never written to disk."
+            ]
+        ),
+        HelpTopic(
+            term: "Naming devices",
+            category: .networkMap,
+            short: "Your own labels for client hardware, stored on this Mac only.",
+            body: [
+                "Double-click any row, or use its context menu, to give a device a name, a type and a note. A named device keeps that name wherever it appears, and the name follows the hardware address rather than the IP, so it survives a new DHCP lease.",
+                "The type is a label you apply, not something the app detects. Telling a printer from a camera would mean probing the device, which this app does not do.",
+                "Labels are written to this Mac's Application Support folder, and only for devices you have actually named, typed or annotated. A device you merely looked at leaves nothing on disk after the app quits. Forget This Label removes one; Forget All Labels removes every one.",
+                "Export Labels writes a file you can carry to another Mac. Import keeps your existing names when the two files disagree."
+            ]
+        ),
+        HelpTopic(
+            term: "IP address",
+            category: .network,
+            short: "The address a device holds on this subnet, issued by DHCP or set by hand.",
+            body: [
+                "An IPv4 address identifies a device on one network. The subnet mask decides which part is the network and which part is the host, and the app uses it to keep neighbours from other interfaces, VPNs and bridges out of this list.",
+                "An address is not a permanent name for a device. A DHCP lease can hand the same address to different hardware over time, which is why names in this app follow the hardware address instead."
+            ]
+        ),
+        HelpTopic(
+            term: "MAC address",
+            category: .network,
+            short: "The hardware address of a network interface, and the key names are stored against.",
+            body: [
+                "A MAC address identifies one network interface. The first three octets are the manufacturer's registered prefix, which is how the app names the vendor without asking the device anything.",
+                "The second-lowest bit of the first octet marks an address as locally administered, meaning software chose it rather than the manufacturer burning it in. Modern phones and laptops do this per network, and virtual interfaces do it too. The app flags those as private, because the prefix identifies nothing.",
+                "This app stores your device names against the MAC address, so a device keeps its name when its IP changes."
             ]
         ),
         HelpTopic(
@@ -462,6 +495,17 @@ enum HelpIndex {
         "vendor prefix":   "Hardware vendors",
         "access points":   "SSID and BSSID",
         "observed devices": "Observed devices",
+        "ip address":      "IP address",
+        "ip":              "IP address",
+        "mac address":     "MAC address",
+        "mac":             "MAC address",
+        "manufacturer":    "Hardware vendors",
+        "arrived":         "Observed devices",
+        "dropped out":     "Observed devices",
+        "departed":        "Observed devices",
+        "seen":            "Observed devices",
+        "naming devices":  "Naming devices",
+        "device name":     "Naming devices",
         "other devices":   "Observed devices",
         "saved aps":       "Where your data is stored"
     ]

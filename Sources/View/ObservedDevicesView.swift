@@ -1,18 +1,28 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 /// Passive view of IPv4 devices already present in the Mac's ARP cache.
 struct ObservedDevicesView: View {
     @EnvironmentObject private var monitor: WiFiMonitor
     @EnvironmentObject private var netInfo: NetworkInfoModel
     @EnvironmentObject private var vendors: VendorDatabase
+    @EnvironmentObject private var devices: DeviceRegistry
+    @EnvironmentObject private var presence: DevicePresence
 
     @State private var searchText = ""
+    @State private var sort: DeviceSort = .address
+    @State private var showDeparted = true
+    @State private var editingMAC: String?
+    @State private var fileMessage: String?
 
     private var activeInterface: String? {
         monitor.current?.interfaceName ?? netInfo.config.primaryInterface
     }
 
-    private var devices: [ARPEntry] {
+    /// Entries the kernel currently holds for this subnet, before any
+    /// presentation decisions are made.
+    private var cached: [ARPEntry] {
         ARPTable.devicesOnActiveSubnet(
             netInfo.arpEntries,
             interface: activeInterface,
@@ -21,13 +31,101 @@ struct ObservedDevicesView: View {
         )
     }
 
-    private var visibleDevices: [ARPEntry] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return devices }
-        return devices.filter { entry in
-            [entry.ip, entry.mac, role(for: entry), vendorName(for: entry)]
-                .contains { $0.localizedCaseInsensitiveContains(query) }
+    private var rows: [ObservedDevice] {
+        let bssid = monitor.current?.bssid
+        var built: [ObservedDevice] = []
+
+        // This Mac first, so the list is read from a known starting point.
+        if let ip = netInfo.config.ipv4, let mac = netInfo.config.activeMAC {
+            built.append(ObservedDevice(
+                mac: DeviceRegistry.normalise(mac),
+                ip: ip,
+                role: .thisMac,
+                record: devices.record(forMAC: mac),
+                vendor: vendors.lookup(mac),
+                sighting: nil,
+                isLocallyAdministered: ARPEntry(ip: ip, mac: mac).isLocallyAdministered,
+                isPresent: true
+            ))
         }
+
+        for entry in cached {
+            let key = DeviceRegistry.normalise(entry.mac)
+            built.append(ObservedDevice(
+                mac: key,
+                ip: entry.ip,
+                role: DeviceRoleResolver.role(forMAC: entry.mac, ip: entry.ip,
+                                              config: netInfo.config, bssid: bssid),
+                record: devices.record(forMAC: entry.mac),
+                vendor: vendors.lookup(entry.mac),
+                sighting: presence.sighting(forMAC: entry.mac),
+                isLocallyAdministered: entry.isLocallyAdministered,
+                isPresent: true
+            ))
+        }
+
+        // Devices seen earlier this session that have dropped out of the cache.
+        if showDeparted {
+            let present = Set(built.map(\.mac))
+            for gone in presence.departed where !present.contains(gone.mac) {
+                built.append(ObservedDevice(
+                    mac: gone.mac,
+                    ip: gone.sighting.lastIP,
+                    role: .device,
+                    record: devices.record(forMAC: gone.mac),
+                    vendor: vendors.lookup(gone.mac),
+                    sighting: gone.sighting,
+                    isLocallyAdministered: ARPEntry(ip: gone.sighting.lastIP,
+                                                    mac: gone.mac).isLocallyAdministered,
+                    isPresent: false
+                ))
+            }
+        }
+
+        return sorted(built)
+    }
+
+    private func sorted(_ list: [ObservedDevice]) -> [ObservedDevice] {
+        // Present devices always precede departed ones, whatever the sort.
+        func before(_ a: ObservedDevice, _ b: ObservedDevice) -> Bool {
+            if a.isPresent != b.isPresent { return a.isPresent }
+            switch sort {
+            case .address:
+                if a.role.sortRank != b.role.sortRank { return a.role.sortRank < b.role.sortRank }
+                return ipValue(a.ip) < ipValue(b.ip)
+            case .role:
+                if a.role.sortRank != b.role.sortRank { return a.role.sortRank < b.role.sortRank }
+                return ipValue(a.ip) < ipValue(b.ip)
+            case .name:
+                let l = a.displayName.localizedCaseInsensitiveCompare(b.displayName)
+                return l == .orderedSame ? ipValue(a.ip) < ipValue(b.ip) : l == .orderedAscending
+            case .manufacturer:
+                let l = a.vendorText.localizedCaseInsensitiveCompare(b.vendorText)
+                return l == .orderedSame ? ipValue(a.ip) < ipValue(b.ip) : l == .orderedAscending
+            case .firstSeen:
+                let x = a.sighting?.firstSeen ?? .distantPast
+                let y = b.sighting?.firstSeen ?? .distantPast
+                return x == y ? ipValue(a.ip) < ipValue(b.ip) : x > y
+            }
+        }
+        return list.sorted(by: before)
+    }
+
+    private func ipValue(_ address: String) -> UInt32 {
+        let parts = address.split(separator: ".")
+        guard parts.count == 4 else { return .max }
+        var value: UInt32 = 0
+        for part in parts {
+            guard let octet = UInt8(part) else { return .max }
+            value = (value << 8) | UInt32(octet)
+        }
+        return value
+    }
+
+    private var visible: [ObservedDevice] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return rows }
+        return rows.filter { $0.searchHaystack.localizedCaseInsensitiveContains(query) }
     }
 
     var body: some View {
@@ -35,8 +133,12 @@ struct ObservedDevicesView: View {
             toolbar
             Divider()
             passiveNotice
+            if let fileMessage {
+                InlineNotice(text: fileMessage) { self.fileMessage = nil }
+            }
 
-            if devices.isEmpty {
+            let all = rows
+            if all.isEmpty {
                 EmptyHint(
                     systemImage: "desktopcomputer.and.macbook",
                     title: "No devices observed",
@@ -46,11 +148,13 @@ struct ObservedDevicesView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 6) {
+                        summary(all)
                         columnHeader
-                        ForEach(visibleDevices, id: \.ip) { entry in
-                            deviceRow(entry)
+                        let shown = visible
+                        ForEach(shown) { device in
+                            deviceRow(device)
                         }
-                        if visibleDevices.isEmpty {
+                        if shown.isEmpty {
                             Text("No observed device matches this filter.")
                                 .font(.system(size: 11.5))
                                 .foregroundStyle(.secondary)
@@ -64,10 +168,26 @@ struct ObservedDevicesView: View {
         }
         .background(Color(nsColor: .underPageBackgroundColor))
         .onAppear { netInfo.refreshARP() }
+        // These mutate observed state, so they must not run inside the view
+        // update that is reading it. Hopping to the next main-actor turn keeps
+        // the publish out of the current render pass; doing it inline corrupts
+        // the layout of the whole split view, not just this pane.
+        .onChange(of: netInfo.arpEntries) { _, _ in
+            let observed = cached
+            Task { @MainActor in presence.note(observed) }
+        }
+        .onChange(of: activeInterface) { _, _ in
+            Task { @MainActor in presence.reset() }
+        }
+        .onChange(of: netInfo.config.ipv4) { _, _ in
+            Task { @MainActor in presence.reset() }
+        }
         .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
             netInfo.refreshARP()
         }
     }
+
+    // MARK: Chrome
 
     private var toolbar: some View {
         HStack(spacing: 10) {
@@ -83,14 +203,44 @@ struct ObservedDevicesView: View {
             .buttonStyle(.borderedProminent)
             .disabled(netInfo.isRefreshingARP)
 
-            TextField("Filter by IP, MAC, role, or manufacturer", text: $searchText)
+            TextField("Filter devices", text: $searchText)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 290)
+                .frame(minWidth: 120, idealWidth: 240, maxWidth: 280)
+
+            Picker("Sort", selection: $sort) {
+                ForEach(DeviceSort.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.menu)
+            .controlSize(.small)
+            .frame(width: 150)
+
+            Toggle("Show departed", isOn: $showDeparted)
+                .toggleStyle(.checkbox)
+                .controlSize(.small)
+                .help("Keep devices in the list after they drop out of the cache, so you can see what left.")
 
             Spacer()
 
+            Menu {
+                Button("Export Device List as CSV…", action: exportCSV)
+                Divider()
+                Button("Export Labels…", action: exportLabels)
+                Button("Import Labels…", action: importLabels)
+                Divider()
+                Button("Forget All Labels", role: .destructive) {
+                    devices.forgetAll()
+                    fileMessage = "All saved device labels were removed from this Mac."
+                }
+                .disabled(devices.labelledCount == 0)
+            } label: {
+                Label("Export", systemImage: "square.and.arrow.up")
+            }
+            .menuStyle(.borderlessButton)
+            .controlSize(.small)
+            .frame(width: 90)
+
             if let lastRefresh = netInfo.lastARPRefresh {
-                Text("Updated \(Fmt.relativeTime(lastRefresh)) · \(devices.count) observed")
+                Text("Updated \(Fmt.relativeTime(lastRefresh))")
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
             }
@@ -109,9 +259,14 @@ struct ObservedDevicesView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Passive device view")
                     .font(.system(size: 11.5, weight: .semibold))
-                Text("Reads the Mac's existing ARP cache. It does not probe devices, scan ports, or send network traffic. Quiet, isolated, and IPv6-only devices may be absent.")
+                Text("Reads the neighbour cache macOS already keeps for traffic this Mac has exchanged. It does not probe devices, scan ports, sweep addresses, or send any packet. Quiet, isolated and IPv6-only devices will not appear. Names you assign are stored on this Mac only, and only for devices you label.")
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
+                    // Wraps to fit, but never grows without bound. Without a
+                    // line limit a narrow proposed width makes this text
+                    // thousands of points tall, which pushes the toolbar off
+                    // the top of the window and the sidebar off the bottom.
+                    .lineLimit(4)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
@@ -121,12 +276,40 @@ struct ObservedDevicesView: View {
         .background(Color.green.opacity(0.08))
     }
 
+    private func summary(_ all: [ObservedDevice]) -> some View {
+        let present = all.filter(\.isPresent)
+        let arrived = present.filter(\.isNew).count
+        let departed = all.filter { !$0.isPresent }.count
+        let priv = present.filter(\.isLocallyAdministered).count
+        let named = present.filter { $0.nickname != nil }.count
+
+        return HStack(spacing: 8) {
+            SummaryChip(value: "\(present.count)", label: "on this subnet", tint: .blue)
+            SummaryChip(value: "\(arrived)", label: "arrived while watching",
+                        tint: arrived > 0 ? .orange : .secondary)
+            SummaryChip(value: "\(departed)", label: "dropped out",
+                        tint: departed > 0 ? .secondary : .secondary)
+            SummaryChip(value: "\(priv)", label: "private addresses",
+                        tint: priv > 0 ? .orange : .secondary)
+            SummaryChip(value: "\(named)", label: "named by you", tint: .green)
+            Spacer()
+            Text("Watching for \(Fmt.duration(Date().timeIntervalSince(presence.watchingSince)))")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.bottom, 2)
+    }
+
     private var columnHeader: some View {
         HStack(spacing: 12) {
             Text("DEVICE").frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
-            Text("IP ADDRESS").frame(width: 128, alignment: .leading)
-            Text("MAC ADDRESS").frame(width: 150, alignment: .leading)
-            Text("MANUFACTURER").frame(minWidth: 180, maxWidth: .infinity, alignment: .leading)
+            Text("IP ADDRESS").frame(width: 118, alignment: .leading)
+                .explains("IP address", affordance: .highlight)
+            Text("MAC ADDRESS").frame(width: 140, alignment: .leading)
+                .explains("MAC address", affordance: .highlight)
+            Text("MANUFACTURER").frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
+                .explains("Hardware vendors", affordance: .highlight)
+            Text("SEEN").frame(width: 96, alignment: .leading)
         }
         .font(.system(size: 9, weight: .semibold))
         .tracking(0.5)
@@ -135,68 +318,304 @@ struct ObservedDevicesView: View {
         .padding(.vertical, 2)
     }
 
-    private func deviceRow(_ entry: ARPEntry) -> some View {
+    // MARK: Rows
+
+    private func deviceRow(_ device: ObservedDevice) -> some View {
         HStack(spacing: 12) {
             HStack(spacing: 8) {
-                Image(systemName: entry.ip == netInfo.config.router ? "wifi.router" : "desktopcomputer")
+                Image(systemName: device.symbol)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(entry.ip == netInfo.config.router ? Color.blue : Color.secondary)
+                    .foregroundStyle(device.tint)
                     .frame(width: 20)
+
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(role(for: entry))
-                        .font(.system(size: 11.5, weight: .semibold))
-                    Text(entry.isLocallyAdministered ? "Private or virtual address" : "Hardware address")
+                    HStack(spacing: 5) {
+                        Text(device.displayName)
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .lineLimit(1)
+                        if device.isNew { Pill(text: "NEW", tint: .orange) }
+                        if !device.isPresent { Pill(text: "GONE", tint: .secondary) }
+                        if device.isLocallyAdministered { Pill(text: "PRIVATE", tint: .orange) }
+                    }
+                    Text(subtitle(device))
                         .font(.system(size: 9.5))
-                        .foregroundStyle(entry.isLocallyAdministered ? Color.orange : Color.secondary)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
             .frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
 
-            Text(entry.ip)
+            Text(device.ip)
                 .font(.system(size: 11, design: .monospaced))
                 .textSelection(.enabled)
-                .frame(width: 128, alignment: .leading)
+                .frame(width: 118, alignment: .leading)
 
-            Text(entry.mac)
+            Text(device.mac)
                 .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
-                .frame(width: 150, alignment: .leading)
+                .frame(width: 140, alignment: .leading)
 
-            Text(vendorName(for: entry))
+            Text(device.vendorText)
                 .font(.system(size: 11))
-                .foregroundStyle(entry.isLocallyAdministered ? Color.orange : Color.primary)
+                .foregroundStyle(device.isLocallyAdministered ? Color.orange : Color.primary)
                 .lineLimit(2)
                 .textSelection(.enabled)
-                .frame(minWidth: 180, maxWidth: .infinity, alignment: .leading)
+                .frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
+
+            Text(seenText(device))
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .frame(width: 96, alignment: .leading)
         }
         .padding(12)
+        .opacity(device.isPresent ? 1 : 0.55)
         .background(Color.cardBG, in: RoundedRectangle(cornerRadius: UI.radius))
         .overlay(
             RoundedRectangle(cornerRadius: UI.radius)
-                .strokeBorder(Color.hairline.opacity(0.6), lineWidth: 1)
+                .strokeBorder(device.isNew ? Color.orange.opacity(0.5) : Color.hairline.opacity(0.6),
+                              lineWidth: 1)
         )
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { editingMAC = device.mac }
+        .contextMenu { rowMenu(device) }
+        .popover(isPresented: Binding(
+            get: { editingMAC == device.mac },
+            set: { if !$0 { editingMAC = nil } }
+        ), arrowEdge: .trailing) {
+            DeviceLabelEditor(device: device)
+                .environmentObject(devices)
+        }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(role(for: entry)), IP \(entry.ip), MAC \(entry.mac), \(vendorName(for: entry))")
+        .accessibilityLabel(accessibilityText(device))
+    }
+
+    @ViewBuilder
+    private func rowMenu(_ device: ObservedDevice) -> some View {
+        Button("Name This Device…") { editingMAC = device.mac }
+        Divider()
+        Button("Copy IP Address") { copy(device.ip) }
+        Button("Copy MAC Address") { copy(device.mac) }
+        Button("Copy Row") {
+            copy("\(device.displayName)\t\(device.ip)\t\(device.mac)\t\(device.vendorText)")
+        }
+        if device.record != nil {
+            Divider()
+            Button("Forget This Label", role: .destructive) { devices.forget(mac: device.mac) }
+        }
+    }
+
+    private func subtitle(_ device: ObservedDevice) -> String {
+        var parts: [String] = []
+        if device.nickname != nil, device.role != .device {
+            parts.append(device.role.label)
+        }
+        if device.category != .unlabelled, device.nickname != nil || device.role == .device {
+            parts.append(device.category.label)
+        }
+        if let notes = device.record?.notes, !notes.isEmpty {
+            parts.append(notes)
+        }
+        if parts.isEmpty {
+            if let basis = device.role.basis { return basis }
+            return device.isLocallyAdministered
+                ? "Software-assigned address; the prefix identifies no manufacturer"
+                : "Hardware address"
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func seenText(_ device: ObservedDevice) -> String {
+        if device.role == .thisMac { return "—" }
+        guard let sighting = device.sighting else { return "In cache" }
+        if !device.isPresent { return "Left \(Fmt.relativeTime(sighting.lastSeen))" }
+        if sighting.arrivedWhileWatching { return "Arrived \(Fmt.relativeTime(sighting.firstSeen))" }
+        return "Present"
+    }
+
+    private func accessibilityText(_ device: ObservedDevice) -> String {
+        var text = "\(device.displayName), IP \(device.ip), MAC \(device.mac), \(device.vendorText)"
+        if device.isNew { text += ", arrived while watching" }
+        if !device.isPresent { text += ", no longer in the cache" }
+        return text
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private var emptyMessage: String {
         if activeInterface == nil || netInfo.config.ipv4 == nil || netInfo.config.subnetMask == nil {
             return "Waiting for the active Wi-Fi interface and IPv4 settings."
         }
-        return "The Mac's ARP cache does not currently contain another device on this Wi-Fi subnet. Using the network normally may add entries. This view does not generate traffic to find them."
+        return "The Mac's neighbour cache does not currently hold another device on this Wi-Fi subnet. Using the network normally will add entries. This view does not generate traffic to find them."
     }
 
-    private func role(for entry: ARPEntry) -> String {
-        entry.ip == netInfo.config.router ? "Router" : "Observed device"
-    }
+    // MARK: Files
 
-    private func vendorName(for entry: ARPEntry) -> String {
-        switch vendors.lookup(entry.mac) {
-        case .known(let name): return name
-        case .randomised: return "Not available for private addresses"
-        case .unregistered: return "Not identified"
-        case .loading: return "Loading…"
+    private func exportCSV() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "observed-devices.csv"
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.message = "Save the devices currently listed. The file contains only what is on screen."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let csv = ReportBuilder.deviceCSV(visible, networkName: monitor.current?.ssid)
+        do {
+            try csv.data(using: .utf8)?.write(to: url, options: .atomic)
+            fileMessage = "Exported \(visible.count) device\(visible.count == 1 ? "" : "s")."
+        } catch {
+            fileMessage = "The file could not be exported: \(error.localizedDescription)"
         }
+    }
+
+    private func exportLabels() {
+        guard let data = devices.exportJSON() else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "device-labels.json"
+        panel.allowedContentTypes = [.json]
+        panel.message = "Save your device names. This file stays local unless you move it."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try data.write(to: url, options: .atomic)
+            fileMessage = "Saved \(devices.labelledCount) device label\(devices.labelledCount == 1 ? "" : "s")."
+        } catch {
+            fileMessage = "The file could not be exported: \(error.localizedDescription)"
+        }
+    }
+
+    private func importLabels() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose an exported device label file. Existing names are kept on conflict."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            guard let added = devices.importJSON(data) else {
+                fileMessage = "That file is not a valid WifiHigh5 device label export."
+                return
+            }
+            fileMessage = added == 0
+                ? "Nothing new was imported. Your existing names were kept."
+                : "Imported \(added) device label\(added == 1 ? "" : "s"). Existing names were kept."
+        } catch {
+            fileMessage = "The file could not be opened: \(error.localizedDescription)"
+        }
+    }
+}
+
+// MARK: - Pieces
+
+private struct SummaryChip: View {
+    var value: String
+    var label: String
+    var tint: Color
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(value)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(tint)
+            Text(label)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(Color.cardBG, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.hairline.opacity(0.6), lineWidth: 1))
+    }
+}
+
+private struct InlineNotice: View {
+    var text: String
+    var dismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "info.circle").foregroundStyle(.blue)
+            Text(text).font(.system(size: 11))
+            Spacer()
+            Button("Dismiss", action: dismiss)
+                .buttonStyle(.plain)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(Color.blue.opacity(0.08))
+    }
+}
+
+/// Names a device. Everything typed here stays on this Mac.
+private struct DeviceLabelEditor: View {
+    @EnvironmentObject private var devices: DeviceRegistry
+    @Environment(\.dismiss) private var dismiss
+
+    var device: ObservedDevice
+
+    @State private var nickname = ""
+    @State private var notes = ""
+    @State private var category: DeviceCategory = .unlabelled
+    @State private var loaded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Name this device")
+                .font(.system(size: 12, weight: .semibold))
+            Text("\(device.ip) · \(device.mac)")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.secondary)
+
+            TextField("Nickname, e.g. Reception printer", text: $nickname)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(commit)
+
+            Picker("Type", selection: $category) {
+                ForEach(DeviceCategory.allCases) { option in
+                    Label(option.label, systemImage: option.symbol).tag(option)
+                }
+            }
+            .pickerStyle(.menu)
+
+            TextField("Notes, e.g. server room rack 2", text: $notes, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(2...4)
+
+            Text("Saved on this Mac only, and only while this device has a name, type or note.")
+                .font(.system(size: 9.5))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                if device.record != nil {
+                    Button("Forget", role: .destructive) {
+                        devices.forget(mac: device.mac)
+                        dismiss()
+                    }
+                    .controlSize(.small)
+                }
+                Spacer()
+                Button("Done") { commit(); dismiss() }
+                    .controlSize(.small)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(14)
+        .frame(width: 300)
+        .onAppear {
+            guard !loaded else { return }
+            nickname = device.record?.nickname ?? ""
+            notes = device.record?.notes ?? ""
+            category = device.category
+            loaded = true
+        }
+    }
+
+    private func commit() {
+        devices.setNickname(nickname, forMAC: device.mac, currentIP: device.ip)
+        devices.setNotes(notes, forMAC: device.mac, currentIP: device.ip)
+        devices.setCategory(category, forMAC: device.mac, currentIP: device.ip)
     }
 }

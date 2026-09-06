@@ -17,6 +17,10 @@ swiftc \
     Sources/Model/Survey.swift \
     Sources/Model/APRegistry.swift \
     Sources/Model/Topology.swift \
+    Sources/Model/DeviceRegistry.swift \
+    Sources/Model/DeviceRole.swift \
+    Sources/Model/ObservedDevice.swift \
+    Sources/Service/DevicePresence.swift \
     Sources/Service/ARPTable.swift \
     Sources/Service/ReportBuilder.swift \
     Sources/Service/VendorDatabase.swift \

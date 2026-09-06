@@ -29,6 +29,8 @@ struct WifiHigh5App: App {
     @StateObject private var store = SurveyStore()
     @StateObject private var surveyUI = SurveyUI()
     @StateObject private var vendors = VendorDatabase()
+    @StateObject private var devices = DeviceRegistry()
+    @StateObject private var presence = DevicePresence()
     @State private var confirmClearSession = false
 
     init() {
@@ -49,9 +51,14 @@ struct WifiHigh5App: App {
                 .environmentObject(store)
                 .environmentObject(surveyUI)
                 .environmentObject(vendors)
+                .environmentObject(devices)
+                .environmentObject(presence)
                 .frame(minWidth: 940, minHeight: 620)
                 .task {
-                    appDelegate.onTerminate = { registry.saveNow() }
+                    appDelegate.onTerminate = {
+                        registry.saveNow()
+                        devices.saveNow()
+                    }
                 }
         }
         .defaultSize(width: 1180, height: 800)

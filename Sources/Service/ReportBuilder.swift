@@ -218,6 +218,42 @@ enum ReportBuilder {
          .replacingOccurrences(of: "'", with: "&#39;")
     }
 
+    // MARK: Observed devices
+
+    /// A device inventory for the client, containing exactly what the list
+    /// showed. Nothing is looked up or contacted to produce it.
+    static func deviceCSV(_ devices: [ObservedDevice], networkName: String?) -> String {
+        let stamp = ISO8601DateFormatter()
+        var lines = ["# WifiHigh5 observed devices"]
+        lines.append("# Network,\(escapeCSV(networkName ?? "Not available"))")
+        lines.append("# Exported,\(stamp.string(from: Date()))")
+        lines.append("# Source,Passive read of this Mac's neighbour cache. No device was probed.")
+        lines.append("Name,Role,Type,IP Address,MAC Address,Address Type,Manufacturer,Status,First Seen,Last Seen,Notes")
+        for device in devices {
+            lines.append([
+                escapeCSV(device.displayName),
+                escapeCSV(device.role.label),
+                escapeCSV(device.category == .unlabelled ? "" : device.category.label),
+                escapeCSV(device.ip),
+                escapeCSV(device.mac),
+                escapeCSV(device.isLocallyAdministered ? "Private or virtual" : "Hardware"),
+                escapeCSV(device.vendorText),
+                escapeCSV(status(device)),
+                escapeCSV(device.sighting.map { stamp.string(from: $0.firstSeen) } ?? ""),
+                escapeCSV(device.sighting.map { stamp.string(from: $0.lastSeen) } ?? ""),
+                escapeCSV(device.record?.notes ?? "")
+            ].joined(separator: ","))
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private static func status(_ device: ObservedDevice) -> String {
+        if device.role == .thisMac { return "This Mac" }
+        if !device.isPresent { return "No longer in cache" }
+        if device.isNew { return "Arrived while watching" }
+        return "Present"
+    }
+
     private static func escapeCSV(_ s: String) -> String {
         guard s.contains(",") || s.contains("\"") || s.contains("\n") else { return s }
         return "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\""

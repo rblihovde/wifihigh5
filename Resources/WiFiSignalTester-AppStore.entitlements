@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Mandatory for the Mac App Store. Verified against every API this app
+         uses: CoreWLAN reads and scans, SCDynamicStore, the ARP table via
+         sysctl, ICMP datagram sockets and getifaddrs all work inside it. -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+
+    <!-- Outgoing sockets. Used only for the opt-in ICMP echo to the default
+         gateway; the app makes no other network connections. -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- macOS classifies Wi-Fi network names as location data, so this is what
+         allows the SSID and BSSID to be read. No location fix is ever
+         requested and no position is stored or transmitted. -->
+    <key>com.apple.security.personal-information.location</key>
+    <true/>
+</dict>
+</plist>

@@ -338,10 +338,16 @@ final class WiFiMonitor: ObservableObject {
         guard let channel = i.wlanChannel(), i.interfaceMode() == .station else {
             return Reading(status: .disconnected, sample: nil)
         }
+        #if DEMO_SCREENSHOTS
+        let identifiers: (ssid: String?, bssid: String?) = (DemoIdentifiers.ssid, DemoIdentifiers.bssid)
+        #else
+        let identifiers: (ssid: String?, bssid: String?) = (i.ssid(), i.bssid())
+        #endif
+
         let s = WiFiSample(
             time: Date(),
-            ssid: i.ssid(),
-            bssid: i.bssid(),
+            ssid: identifiers.ssid,
+            bssid: identifiers.bssid,
             rssi: i.rssiValue(),
             noise: i.noiseMeasurement(),
             txRate: i.transmitRate(),

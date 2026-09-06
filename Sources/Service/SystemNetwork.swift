@@ -30,6 +30,24 @@ struct IPConfig {
 enum SystemNetwork {
 
     static func read(interface: String) -> IPConfig {
+        // Screenshot builds never touch the real configuration.
+        #if DEMO_SCREENSHOTS
+        do {
+            var demo = IPConfig()
+            demo.ipv4 = DemoIdentifiers.ipv4
+            demo.subnetMask = DemoIdentifiers.subnetMask
+            demo.router = DemoIdentifiers.router
+            demo.dnsServers = DemoIdentifiers.dns
+            demo.searchDomains = DemoIdentifiers.searchDomains
+            demo.dhcpServer = DemoIdentifiers.router
+            demo.primaryInterface = interface
+            demo.activeMAC = DemoIdentifiers.routerMAC
+            demo.leaseStart = Date().addingTimeInterval(-3600)
+            demo.leaseDuration = 86_400
+            return demo
+        }
+        #endif
+
         var cfg = IPConfig()
         guard let store = SCDynamicStoreCreate(nil, "WifiHigh5" as CFString, nil, nil) else {
             cfg.activeMAC = macAddress(for: interface)

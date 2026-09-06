@@ -19,7 +19,8 @@ struct LiveView: View {
             VStack(spacing: UI.gap) {
                 ConnectionHeader(renaming: $renaming)
                 if monitor.status == .connected, monitor.current != nil {
-                    if !gate.isAuthorized { PermissionBanner() }
+                    // A screenshot build always shows names, so the prompt would be wrong.
+                    if !gate.isAuthorized, !DemoBuild.isActive { PermissionBanner() }
                     ConnectionGuide()
                     chartPanel
                     StatsStrip(window: window)

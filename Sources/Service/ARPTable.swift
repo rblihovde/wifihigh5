@@ -43,6 +43,18 @@ struct ARPEntry: Hashable {
 enum ARPTable {
 
     static func read() -> [ARPEntry] {
+        // Screenshot builds show an invented subnet rather than the real one.
+        #if DEMO_SCREENSHOTS
+        return [
+            ARPEntry(ip: DemoIdentifiers.router, mac: DemoIdentifiers.routerMAC, interfaceName: "en0"),
+            ARPEntry(ip: "10.0.4.23", mac: "00:00:5e:00:53:11", interfaceName: "en0"),
+            ARPEntry(ip: "10.0.4.44", mac: "00:00:5e:00:53:2c", interfaceName: "en0"),
+            ARPEntry(ip: "10.0.4.87", mac: "9a:1f:00:53:64:d0", interfaceName: "en0"),
+            ARPEntry(ip: "10.0.4.101", mac: "00:00:5e:00:53:7e", interfaceName: "en0"),
+            ARPEntry(ip: "10.0.4.140", mac: "b2:44:00:53:19:aa", interfaceName: "en0")
+        ]
+        #else
+
         var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, AF_INET, NET_RT_FLAGS, Int32(RTF_LLINFO)]
 
         // The size is asked for and then filled in two separate calls, and the
@@ -99,6 +111,7 @@ enum ARPTable {
             }
         }
         return entries
+        #endif
     }
 
     /// True when two MACs sit in the same vendor prefix and within a few

@@ -23,14 +23,20 @@ if [ ! -d "${APP}" ]; then
     exit 1
 fi
 
+# The signature is captured before being searched rather than piped into a
+# grep. Under `set -o pipefail` a `grep -q` closes the pipe as soon as it
+# matches, codesign dies of SIGPIPE, and the pipeline reports failure on
+# success — which inverted both of these checks.
+SIGNATURE=$(codesign -dvv "${APP}" 2>&1 || true)
+
 # Ad-hoc signatures cannot be notarised, so fail early rather than after upload.
-if ! codesign -dvv "${APP}" 2>&1 | grep -q "Authority=Developer ID Application"; then
+if ! grep -q "Authority=Developer ID Application" <<<"${SIGNATURE}"; then
     echo "!! ${APP} is not signed with a Developer ID certificate." >&2
     echo "   Rebuild with: CODESIGN_IDENTITY='Developer ID Application: ...' ./build.sh" >&2
     exit 1
 fi
 
-if ! codesign -dvv "${APP}" 2>&1 | grep -q "Timestamp="; then
+if ! grep -q "Timestamp=" <<<"${SIGNATURE}"; then
     echo "!! ${APP} has no secure timestamp; Apple will reject it." >&2
     exit 1
 fi
@@ -61,5 +67,19 @@ spctl -a -vvv -t exec "${APP}" 2>&1 | sed 's/^/    /'
 rm -f "${ARCHIVE}"
 ditto -c -k --keepParent "${APP}" "${ARCHIVE}"
 
+# Installing the stapled bundle directly matters: rebuilding would recompile
+# and re-sign, producing a different binary that this ticket does not cover.
+if [ "${SKIP_INSTALL:-0}" != "1" ]; then
+    INSTALLED="/Applications/${APP_NAME}.app"
+    echo "==> Installing the stapled build to ${INSTALLED}"
+    rm -rf "${INSTALLED}"
+    cp -R "${APP}" "/Applications/"
+    LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+    "${LSREGISTER}" -f "${INSTALLED}"
+    xcrun stapler validate "${INSTALLED}" 2>&1 | sed 's/^/    /'
+    spctl -a -vvv -t exec "${INSTALLED}" 2>&1 | sed 's/^/    /'
+fi
+
 echo "==> Notarised. Distributable copy: ${ARCHIVE}"
-echo "    Reinstall the stapled build with: ./build.sh"
+echo "    Note: any later ./build.sh re-signs the app and drops the ticket."
+echo "    Run this script again after rebuilding."

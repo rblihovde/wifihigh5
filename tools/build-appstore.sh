@@ -26,7 +26,8 @@ note() { echo "    $1"; }
 
 echo "==> Checking prerequisites"
 
-if security find-identity -v -p codesigning 2>/dev/null | grep -Fq "${APP_CERT}"; then
+CODESIGN_IDENTITIES=$(security find-identity -v -p codesigning 2>/dev/null || true)
+if grep -Fq "${APP_CERT}" <<<"${CODESIGN_IDENTITIES}"; then
     note "app signing certificate: found"
 else
     note "MISSING app signing certificate: ${APP_CERT}"
@@ -34,7 +35,8 @@ else
     missing=1
 fi
 
-if security find-identity -v 2>/dev/null | grep -Fq "${PKG_CERT}"; then
+ALL_IDENTITIES=$(security find-identity -v 2>/dev/null || true)
+if grep -Fq "${PKG_CERT}" <<<"${ALL_IDENTITIES}"; then
     note "installer certificate: found"
 else
     note "MISSING installer certificate: ${PKG_CERT}"
@@ -99,7 +101,8 @@ codesign --verify --strict --verbose=2 "${BUNDLE}" 2>&1 | sed 's/^/    /'
 
 # The sandbox entitlement must actually be present, or the upload is rejected
 # after the fact rather than here.
-if ! codesign -d --entitlements - "${BUNDLE}" 2>/dev/null | grep -q "app-sandbox"; then
+BUNDLE_ENTITLEMENTS=$(codesign -d --entitlements - "${BUNDLE}" 2>/dev/null || true)
+if ! grep -q "app-sandbox" <<<"${BUNDLE_ENTITLEMENTS}"; then
     echo "!! The signed bundle has no app-sandbox entitlement; App Store will reject it." >&2
     exit 1
 fi

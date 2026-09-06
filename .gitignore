@@ -2,3 +2,6 @@
 build/
 *.xcuserstate
 DerivedData/
+
+# App Store screenshots: hold back until real network identifiers are replaced
+docs/appstore/

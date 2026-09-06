@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>WiFiSignalTester</string>
+    <string>WifiHigh5</string>
     <key>CFBundleIdentifier</key>
-    <string>com.rblihovde.wifisignaltester</string>
+    <string>com.rblihovde.wifihigh5</string>
     <key>CFBundleName</key>
-    <string>WiFi Signal Tester</string>
+    <string>WifiHigh5</string>
     <key>CFBundleDisplayName</key>
-    <string>WiFi Signal Tester</string>
+    <string>WifiHigh5</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>

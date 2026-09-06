@@ -31,7 +31,7 @@ enum SystemNetwork {
 
     static func read(interface: String) -> IPConfig {
         var cfg = IPConfig()
-        guard let store = SCDynamicStoreCreate(nil, "WiFiSignalTester" as CFString, nil, nil) else {
+        guard let store = SCDynamicStoreCreate(nil, "WifiHigh5" as CFString, nil, nil) else {
             cfg.activeMAC = macAddress(for: interface)
             return cfg
         }

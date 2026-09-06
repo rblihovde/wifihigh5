@@ -47,7 +47,7 @@ final class APRegistry: ObservableObject {
     static let folderURL: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        return base.appendingPathComponent("WiFi Signal Tester", isDirectory: true)
+        return base.appendingPathComponent("WifiHigh5", isDirectory: true)
     }()
 
     init() {

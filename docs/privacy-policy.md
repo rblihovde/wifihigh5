@@ -1,8 +1,8 @@
-# Privacy Policy — WiFi Signal Tester
+# Privacy Policy — WifiHigh5
 
 **Last updated: 5 September 2026**
 
-WiFi Signal Tester does not collect, transmit or share any data. There are no
+WifiHigh5 does not collect, transmit or share any data. There are no
 accounts, no analytics, no crash reporting and no advertising.
 
 ## What the app reads

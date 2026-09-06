@@ -190,7 +190,7 @@ struct AccessPointsView: View {
         do {
             let data = try Data(contentsOf: url)
             guard let changed = registry.importJSON(data) else {
-                fileMessage = "That file is not a valid WiFi Signal Tester access point export."
+                fileMessage = "That file is not a valid WifiHigh5 access point export."
                 return
             }
             fileMessage = changed == 0

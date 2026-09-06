@@ -18,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 @main
 @MainActor
-struct WiFiSignalTesterApp: App {
+struct WifiHigh5App: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var registry: APRegistry
     @StateObject private var monitor: WiFiMonitor
@@ -99,7 +99,7 @@ struct WiFiSignalTesterApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        Window("WiFi Signal Tester Help", id: Self.helpWindowID) {
+        Window("WifiHigh5 Help", id: Self.helpWindowID) {
             HelpView()
         }
         .defaultSize(width: 900, height: 620)
@@ -211,8 +211,8 @@ struct HelpCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .help) {
-            Button("WiFi Signal Tester Help") {
-                openWindow(id: WiFiSignalTesterApp.helpWindowID)
+            Button("WifiHigh5 Help") {
+                openWindow(id: WifiHigh5App.helpWindowID)
             }
             .keyboardShortcut("?", modifiers: .command)
         }

@@ -10,13 +10,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP_NAME="WiFi Signal Tester"
-BINARY="WiFiSignalTester"
+APP_NAME="WifiHigh5"
+BINARY="WifiHigh5"
 TEAM_ID="A826N9S2WM"
 OUT_DIR="build/appstore"
 BUNDLE="${OUT_DIR}/${APP_NAME}.app"
 PKG="${OUT_DIR}/${BINARY}.pkg"
-PROFILE="${PROVISION_PROFILE:-Resources/WiFiSignalTester.provisionprofile}"
+PROFILE="${PROVISION_PROFILE:-Resources/WifiHigh5.provisionprofile}"
 
 APP_CERT="${APPSTORE_APP_IDENTITY:-Apple Distribution: Ryan Blihovde (${TEAM_ID})}"
 PKG_CERT="${APPSTORE_PKG_IDENTITY:-3rd Party Mac Developer Installer: Ryan Blihovde (${TEAM_ID})}"
@@ -49,7 +49,7 @@ if [ -f "${PROFILE}" ]; then
 else
     note "MISSING provisioning profile at ${PROFILE}"
     note "  developer.apple.com ▸ Profiles ▸ + ▸ Mac App Store Connect"
-    note "  Register bundle ID com.rblihovde.wifisignaltester first, then download"
+    note "  Register bundle ID com.rblihovde.wifihigh5 first, then download"
     note "  the profile and save it to that path."
     missing=1
 fi
@@ -92,7 +92,7 @@ cp "${PROFILE}" "${BUNDLE}/Contents/embedded.provisionprofile"
 echo "==> Signing (sandboxed, Apple Distribution)"
 codesign --force \
     --sign "${APP_CERT}" \
-    --entitlements Resources/WiFiSignalTester-AppStore.entitlements \
+    --entitlements Resources/WifiHigh5-AppStore.entitlements \
     --options runtime \
     --timestamp \
     "${BUNDLE}"

@@ -1,11 +1,11 @@
 #!/bin/bash
-# Builds, bundles and signs WiFi Signal Tester.app
+# Builds, bundles and signs WifiHigh5.app
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-APP_NAME="WiFi Signal Tester"
-BINARY="WiFiSignalTester"
+APP_NAME="WifiHigh5"
+BINARY="WifiHigh5"
 BUILD_DIR="build"
 BUNDLE="${BUILD_DIR}/${APP_NAME}.app"
 STAGING_ROOT="${BUILD_DIR}/.staging-$$"
@@ -59,7 +59,7 @@ printf 'APPL????' > "${STAGING_BUNDLE}/Contents/PkgInfo"
 
 echo "==> Signing as: ${IDENTITY}"
 SIGN_ARGS=(--force --sign "${IDENTITY}" --options runtime
-           --entitlements Resources/WiFiSignalTester.entitlements)
+           --entitlements Resources/WifiHigh5.entitlements)
 if [ "${IDENTITY}" != "-" ]; then SIGN_ARGS+=(--timestamp); fi
 codesign "${SIGN_ARGS[@]}" "${STAGING_BUNDLE}"
 

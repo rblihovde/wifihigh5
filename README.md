@@ -1,4 +1,4 @@
-# WiFi Signal Tester
+# WifiHigh5
 
 A macOS menu-bar and window app for reading the Wi-Fi link this Mac is on, built
 to be defensible to run on a client's network while you're onsite.
@@ -44,7 +44,7 @@ export a report. See below.
 **Diagnostics** — permission state, sampling controls, where data is stored, CSV
 export, and a plain-language statement of what the app does and does not do.
 
-Every reading in the app is explained in **Help ▸ WiFi Signal Tester Help**
+Every reading in the app is explained in **Help ▸ WifiHigh5 Help**
 (⌘?): what each number is, what a good value looks like, and what to do when it
 isn't. It's a searchable reference kept out of the main window.
 
@@ -57,7 +57,7 @@ site or floor, free-form notes, and a fixed colour for the graph.
 Nicknames are keyed to the AP's BSSID and stored locally as JSON at:
 
 ```
-~/Library/Application Support/WiFi Signal Tester/access-points.json
+~/Library/Application Support/WifiHigh5/access-points.json
 ```
 
 They persist across launches and never leave the machine. Export and import from
@@ -201,7 +201,7 @@ Requires Xcode command line tools. The build script compiles, bundles and signs:
 ./build.sh
 ```
 
-The result is `build/WiFi Signal Tester.app`, which is then installed to
+The result is `build/WifiHigh5.app`, which is then installed to
 `/Applications`. That install step matters: the Location Services grant is bound
 to the installed bundle's path, so running out of `build/` means re-granting
 each time. Pass `SKIP_INSTALL=1` to build without installing.

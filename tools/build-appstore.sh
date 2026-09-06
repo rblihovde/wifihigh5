@@ -89,6 +89,12 @@ cp Resources/Info.plist "${BUNDLE}/Contents/Info.plist"
 printf 'APPL????' > "${BUNDLE}/Contents/PkgInfo"
 cp "${PROFILE}" "${BUNDLE}/Contents/embedded.provisionprofile"
 
+# A provisioning profile downloaded through a browser carries
+# com.apple.quarantine, and cp preserves it. Apple rejects the upload for it
+# (ITMS-91109). Strip every extended attribute before signing, not after, so
+# the signature is taken over the bundle as it will be shipped.
+xattr -cr "${BUNDLE}"
+
 echo "==> Signing (sandboxed, Apple Distribution)"
 codesign --force \
     --sign "${APP_CERT}" \
@@ -115,6 +121,14 @@ PROFILE_APP_ID=$(security cms -D -i "${PROFILE}" 2>/dev/null \
 if [ -n "${PROFILE_APP_ID}" ] && ! grep -Fq "${PROFILE_APP_ID}" <<<"${BUNDLE_ENTITLEMENTS}"; then
     echo "!! The signed bundle is missing com.apple.application-identifier" >&2
     echo "   (${PROFILE_APP_ID}); it would be ineligible for TestFlight." >&2
+    exit 1
+fi
+
+# Nothing may reintroduce a quarantine flag between here and the package.
+QUARANTINED=$(xattr -r -l "${BUNDLE}" 2>/dev/null | grep -c "com.apple.quarantine" || true)
+if [ "${QUARANTINED}" -ne 0 ]; then
+    echo "!! ${QUARANTINED} file(s) in the bundle still carry com.apple.quarantine;" >&2
+    echo "   Apple rejects the upload for this (ITMS-91109)." >&2
     exit 1
 fi
 

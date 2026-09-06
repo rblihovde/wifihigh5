@@ -204,6 +204,10 @@ final class WiFiMonitor: ObservableObject {
     /// Twelve hours at one second, an upper bound so a forgotten recording
     /// cannot grow without limit.
     private let maximumRecordedSamples = 43_200
+    /// Transitions are far rarer than samples, but a client flapping between
+    /// two access points can produce them steadily for hours, and this is the
+    /// one series that had no ceiling.
+    private let maximumRoamEvents = 2_000
 
     var isRecording: Bool { recording != nil }
 
@@ -407,7 +411,13 @@ final class WiFiMonitor: ObservableObject {
                 reason: reason
             )
             roamEvents.append(event)
+            if roamEvents.count > maximumRoamEvents {
+                roamEvents.removeFirst(roamEvents.count - maximumRoamEvents)
+            }
             recording?.roamEvents.append(event)
+            if let count = recording?.roamEvents.count, count > maximumRoamEvents {
+                recording?.roamEvents.removeFirst(count - maximumRoamEvents)
+            }
             currentKey = key
             currentAPSince = sample.time
         }

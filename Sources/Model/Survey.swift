@@ -131,6 +131,22 @@ final class SurveyStore: ObservableObject {
         return try? Self.decoder().decode(SurveySession.self, from: data)
     }
 
+    /// Reads and decodes off the main thread. A long walkthrough holds tens of
+    /// thousands of samples, and decoding that inline visibly stalls the window.
+    func load(id: UUID) async -> SurveySession? {
+        let url = fileURL(for: id)
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard let data = try? Data(contentsOf: url) else {
+                    continuation.resume(returning: nil); return
+                }
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                continuation.resume(returning: try? decoder.decode(SurveySession.self, from: data))
+            }
+        }
+    }
+
     func delete(id: UUID) {
         try? FileManager.default.removeItem(at: fileURL(for: id))
         entries.removeAll { $0.id == id }

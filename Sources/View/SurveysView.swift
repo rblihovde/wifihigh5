@@ -12,6 +12,7 @@ struct SurveysView: View {
     @State private var site = ""
     @State private var selected: SurveySession?
     @State private var saveError: String?
+    @State private var opening: UUID?
 
     var body: some View {
         ScrollView {
@@ -221,10 +222,15 @@ struct SurveysView: View {
                                     Text("average").font(.system(size: 9)).foregroundStyle(Color.subtle)
                                 }
                             }
-                            Button("Open") {
-                                selected = store.load(id: e.id)
+                            Button(opening == e.id ? "Opening…" : "Open") {
+                                opening = e.id
+                                Task {
+                                    selected = await store.load(id: e.id)
+                                    opening = nil
+                                }
                             }
                             .controlSize(.small)
+                            .disabled(opening != nil)
                             Button { store.delete(id: e.id) } label: { Image(systemName: "trash") }
                                 .buttonStyle(.borderless)
                                 .help("Delete this walkthrough")

@@ -44,11 +44,22 @@ enum ARPTable {
 
     static func read() -> [ARPEntry] {
         var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, AF_INET, NET_RT_FLAGS, Int32(RTF_LLINFO)]
-        var needed = 0
-        guard sysctl(&mib, u_int(mib.count), nil, &needed, nil, 0) == 0, needed > 0 else { return [] }
 
-        var buffer = [UInt8](repeating: 0, count: needed)
-        guard sysctl(&mib, u_int(mib.count), &buffer, &needed, nil, 0) == 0 else { return [] }
+        // The size is asked for and then filled in two separate calls, and the
+        // table can grow in between. Ask for headroom and retry once rather
+        // than silently returning nothing when a neighbour appears mid-read.
+        var buffer = [UInt8]()
+        var needed = 0
+        for attempt in 0..<2 {
+            var wanted = 0
+            guard sysctl(&mib, u_int(mib.count), nil, &wanted, nil, 0) == 0, wanted > 0 else { return [] }
+            let capacity = wanted + (wanted / 8) + 1024 * (attempt + 1)
+            buffer = [UInt8](repeating: 0, count: capacity)
+            needed = capacity
+            if sysctl(&mib, u_int(mib.count), &buffer, &needed, nil, 0) == 0 { break }
+            guard errno == ENOMEM, attempt == 0 else { return [] }
+        }
+        guard needed > 0, needed <= buffer.count else { return [] }
 
         var entries: [ARPEntry] = []
         var offset = 0
@@ -67,7 +78,11 @@ enum ARPTable {
                     .assumingMemoryBound(to: sockaddr_dl.self)
 
                 guard sdl.pointee.sdl_alen == 6 else { continue }
-                guard let cString = inet_ntoa(sin.pointee.sin_addr) else { continue }
+                var address = sin.pointee.sin_addr
+                var text = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+                guard inet_ntop(AF_INET, &address, &text, socklen_t(INET_ADDRSTRLEN)) != nil else {
+                    continue
+                }
 
                 let dataStart = UnsafeRawPointer(sdl)
                     .advanced(by: MemoryLayout<sockaddr_dl>.offset(of: \.sdl_data)!)
@@ -79,7 +94,7 @@ enum ARPTable {
                 var interfaceBuffer = [CChar](repeating: 0, count: Int(IF_NAMESIZE))
                 let interface = if_indextoname(UInt32(header.pointee.rtm_index), &interfaceBuffer)
                     .map { String(cString: $0) }
-                entries.append(ARPEntry(ip: String(cString: cString), mac: mac,
+                entries.append(ARPEntry(ip: String(cString: text), mac: mac,
                                         interfaceName: interface))
             }
         }

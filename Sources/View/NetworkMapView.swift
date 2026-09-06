@@ -22,7 +22,6 @@ struct NetworkMapView: View {
     @State private var arpReadInFlight = false
     @State private var selectedNodeID: String?
     @State private var showNotes = false
-    @State private var refreshTick = 0
     @State private var lastViewportSize = CGSize(width: 900, height: 600)
     /// Until the operator pans or zooms, the drawing keeps framing itself as
     /// nodes arrive — ARP and scan results land a few seconds after launch.
@@ -33,9 +32,16 @@ struct NetworkMapView: View {
     private let columnSpacing: CGFloat = 280
     private let rowSpacing: CGFloat = 240
 
-    private var map: NetworkMap {
-        _ = refreshTick
-        return TopologyBuilder.build(
+    /// The built topology, held rather than recomputed.
+    ///
+    /// It used to be a computed property, which meant a full rebuild — vendor
+    /// lookups for every neighbour included — on each of the eight or so places
+    /// the body, the layout and the hit testing read it. It is now assembled
+    /// once whenever the data behind it actually moves.
+    @State private var map = NetworkMap()
+
+    private func rebuildMap() {
+        map = TopologyBuilder.build(
             sample: monitor.current, status: monitor.status,
             ip: netInfo.config, arp: arp, scan: scanner.results,
             ipObservedAt: netInfo.lastRefresh,
@@ -146,10 +152,20 @@ struct NetworkMapView: View {
             }
         }
         .background(Color(nsColor: .textBackgroundColor))
-        .onAppear(perform: reloadARP)
+        .onAppear {
+            reloadARP()
+            rebuildMap()
+        }
+        // The sample identity changes once a second while monitoring, which is
+        // also what picks up nickname and vendor edits. The timer covers the
+        // case where sampling is paused.
+        .onChange(of: monitor.current?.id) { _, _ in rebuildMap() }
+        .onChange(of: monitor.status) { _, _ in rebuildMap() }
+        .onChange(of: arp) { _, _ in rebuildMap() }
+        .onChange(of: scanner.results.count) { _, _ in rebuildMap() }
         .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
             reloadARP()
-            refreshTick &+= 1
+            rebuildMap()
         }
     }
 

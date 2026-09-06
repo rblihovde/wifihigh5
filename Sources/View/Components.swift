@@ -76,6 +76,7 @@ struct InfoRow: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .frame(width: 108, alignment: .leading)
+                .explains(label)
             Text(value)
                 .font(.system(size: 11.5, weight: .medium, design: mono ? .monospaced : .default))
                 .foregroundStyle(tint ?? .primary)
@@ -84,7 +85,7 @@ struct InfoRow: View {
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .help(help ?? "")
+        .help(HelpIndex.topic(forLabel: label) == nil ? (help ?? "") : "")
     }
 }
 
@@ -103,6 +104,7 @@ struct StatTile: View {
                 .font(.system(size: 9, weight: .semibold))
                 .tracking(0.5)
                 .foregroundStyle(.secondary)
+                .explains(label)
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(value)
                     .font(.system(size: 19, weight: .semibold, design: .rounded))

@@ -344,6 +344,7 @@ struct TestRunner {
         testSurveyLegs()
         testExports()
         testRoundTrip()
+        testHelpIndex()
         if CommandLine.arguments.count > 1 {
             let databaseURL = URL(fileURLWithPath: CommandLine.arguments[1])
             testVendorLookup(databaseURL: databaseURL)
@@ -398,4 +399,51 @@ private func testVendorLookup(databaseURL: URL) {
     expectEqual("nil input", db.lookup(nil), .unregistered)
 
     expectEqual("vendor prefix extracted", db.prefix(of: "00:00:0c:11:22:33"), "00:00:0c")
+}
+
+// MARK: Hover help lookup
+
+@MainActor
+private func testHelpIndex() {
+    // Every label the interface actually renders should either resolve to a
+    // topic or be a deliberate omission. A typo in the alias table would
+    // silently drop the tooltip, which is exactly the kind of rot tests catch.
+    let expected: [(String, String)] = [
+        ("SNR", "Signal clarity (SNR)"),
+        ("Signal (RSSI)", "Signal strength (RSSI)"),
+        ("Noise floor", "Noise floor"),
+        ("TX rate", "Transmit rate"),
+        ("TX power", "Transmit power"),
+        ("Band", "Band (2.4, 5 and 6 GHz)"),
+        ("Channel width", "Channel width"),
+        ("PHY mode", "PHY mode (Wi-Fi generation)"),
+        ("Security", "Security"),
+        ("Country", "Country code"),
+        ("BSSID", "SSID and BSSID"),
+        ("Private address", "Private Wi-Fi address"),
+        ("Packet loss", "Gateway reachability test"),
+        ("Variation", "Variation (stability)"),
+        ("Vendor", "Hardware vendors")
+    ]
+    for (label, term) in expected {
+        expectEqual("hover help resolves \(label)",
+                    HelpIndex.topic(forLabel: label)?.term, term)
+    }
+
+    // Case and stray punctuation should not matter.
+    expectEqual("lookup is case-insensitive",
+                HelpIndex.topic(forLabel: "snr")?.term, "Signal clarity (SNR)")
+    expectEqual("lookup tolerates a trailing colon",
+                HelpIndex.topic(forLabel: "Noise floor:")?.term, "Noise floor")
+
+    // Labels with no honest match must resolve to nothing rather than to
+    // something approximate.
+    expect("unmapped label has no tooltip", HelpIndex.topic(forLabel: "Site") == nil)
+    expect("empty label has no tooltip", HelpIndex.topic(forLabel: "") == nil)
+
+    // Every alias must point at a topic that exists.
+    let terms = Set(HelpContent.topics.map(\.term))
+    for (_, term) in expected {
+        expect("topic \(term) exists", terms.contains(term))
+    }
 }

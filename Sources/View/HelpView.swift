@@ -51,6 +51,7 @@ enum HelpCategory: String, CaseIterable, Identifiable {
 struct HelpView: View {
     @State private var search = ""
     @State private var selection: HelpTopic?
+    @AppStorage(HoverHelpSetting.key) private var hoverHelpEnabled = true
 
     private var filtered: [HelpTopic] {
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
@@ -78,8 +79,12 @@ struct HelpView: View {
         // reliably render inside a secondary Window scene on macOS, and a help
         // window has no need for navigation stacks anyway.
         HStack(spacing: 0) {
-            sidebar
-                .frame(width: 262)
+            VStack(spacing: 0) {
+                sidebar
+                preferences
+            }
+            .frame(width: 262)
+            .background(Color(nsColor: .controlBackgroundColor))
             Divider()
             Group {
                 if let topic = selection {
@@ -92,6 +97,29 @@ struct HelpView: View {
         }
         .frame(minWidth: 820, minHeight: 560)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    /// Settings that belong with the reference rather than with the
+    /// measurement controls in Diagnostics.
+    private var preferences: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Divider()
+            Toggle(isOn: $hoverHelpEnabled) {
+                Text("Explain readings on hover")
+                    .font(.system(size: 11.5))
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            Text(hoverHelpEnabled
+                 ? "Resting the pointer on a reading shows a short explanation."
+                 : "Hover explanations are off. Everything is still here.")
+                .font(.system(size: 9.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
     }
 
     private var sidebar: some View {

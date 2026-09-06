@@ -111,6 +111,7 @@ struct ConnectionGuide: View {
                 Text(label)
                     .font(.system(size: 9.5))
                     .foregroundStyle(.secondary)
+                    .explains(label)
                 Text("\(status) · \(value)")
                     .font(.system(size: 10.5, weight: .semibold))
                     .lineLimit(1)

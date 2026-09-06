@@ -405,3 +405,76 @@ enum HelpContent {
         )
     ]
 }
+
+// MARK: - Label lookup
+
+/// Maps the short labels the interface uses onto the help topic that explains
+/// them, so hover help and the Help window never drift apart.
+///
+/// Labels with no genuine match deliberately resolve to nothing rather than to
+/// something approximate: a tooltip that explains the wrong thing is worse than
+/// no tooltip.
+enum HelpIndex {
+
+    private static let aliases: [String: String] = [
+        "signal (rssi)":   "Signal strength (RSSI)",
+        "signal":          "Signal strength (RSSI)",
+        "current":         "Signal strength (RSSI)",
+        "average":         "Signal strength (RSSI)",
+        "best":            "Signal strength (RSSI)",
+        "worst":           "Signal strength (RSSI)",
+        "range seen":      "Signal strength (RSSI)",
+        "noise floor":     "Noise floor",
+        "snr":             "Signal clarity (SNR)",
+        "signal clarity":  "Signal clarity (SNR)",
+        "clarity (snr)":   "Signal clarity (SNR)",
+        "variation":       "Variation (stability)",
+        "stability":       "Variation (stability)",
+        "tx rate":         "Transmit rate",
+        "rate":            "Transmit rate",
+        "negotiated rate": "Transmit rate",
+        "tx power":        "Transmit power",
+        "band":            "Band (2.4, 5 and 6 GHz)",
+        "channel":         "Channel",
+        "channel width":   "Channel width",
+        "width":           "Channel width",
+        "phy mode":        "PHY mode (Wi-Fi generation)",
+        "standard":        "PHY mode (Wi-Fi generation)",
+        "security":        "Security",
+        "country":         "Country code",
+        "regulatory domain": "Country code",
+        "ssid":            "SSID and BSSID",
+        "bssid":           "SSID and BSSID",
+        "network":         "SSID and BSSID",
+        "nickname":        "Nicknames",
+        "private address": "Private Wi-Fi address",
+        "active mac":      "Private Wi-Fi address",
+        "hardware mac":    "Private Wi-Fi address",
+        "mac on the wire": "Private Wi-Fi address",
+        "dhcp server":     "DHCP lease",
+        "lease expires":   "DHCP lease",
+        "latency":         "Gateway reachability test",
+        "jitter":          "Gateway reachability test",
+        "packet loss":     "Gateway reachability test",
+        "gateway":         "Gateway reachability test",
+        "target":          "Gateway reachability test",
+        "changes":         "Connection changes and roaming",
+        "roams":           "Connection changes and roaming",
+        "spots":           "Marked spots (waypoints)",
+        "vendor":          "Hardware vendors",
+        "vendor database": "Hardware vendors",
+        "vendor prefix":   "Hardware vendors",
+        "access points":   "SSID and BSSID",
+        "saved aps":       "Where your data is stored"
+    ]
+
+    /// Resolves a label to its topic, tolerating case and trailing colons.
+    static func topic(forLabel label: String) -> HelpTopic? {
+        let key = label
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+            .lowercased()
+        guard let term = aliases[key] else { return nil }
+        return HelpContent.topics.first { $0.term == term }
+    }
+}

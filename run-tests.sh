@@ -20,6 +20,10 @@ swiftc \
     Sources/Service/ARPTable.swift \
     Sources/Service/ReportBuilder.swift \
     Sources/Service/VendorDatabase.swift \
+    Sources/View/HoverHelp.swift \
+    Sources/View/HelpView.swift \
+    Sources/View/HelpContent.swift \
+    Sources/View/Components.swift \
     Tests/TopologyTestSupport.swift \
     Tests/ModelTests.swift \
     -o "$OUT/tests"

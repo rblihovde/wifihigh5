@@ -143,7 +143,7 @@ struct SurveysView: View {
 
     private func stopAndSave() {
         guard let session = monitor.finishRecording() else {
-            saveError = "Nothing was recorded — no readings were captured during the walk."
+            saveError = "Nothing was recorded. The app captured no readings during the walk."
             return
         }
         if store.save(session) {

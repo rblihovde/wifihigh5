@@ -1,16 +1,14 @@
 import Foundation
 import SwiftUI
 
-/// How much is actually known about a node or a path.
+/// The source confidence for a node or path.
 ///
-/// The map is only worth drawing if it distinguishes what was measured from
-/// what was reasoned and from what cannot be seen at all. Anything the app
-/// cannot observe is drawn as unobserved rather than quietly omitted, because a
-/// diagram that looks complete when it isn't is worse than no diagram.
+/// Identifies whether map data is measured, inferred, or unobserved.
+/// The map includes unobserved paths so it does not appear complete.
 enum Confidence: Equatable {
     case observed      // read directly from the system
     case inferred      // derived from observed facts, stated as such
-    case unobserved    // genuinely not visible to this app
+    case unobserved    // not visible to this app
 
     var label: String {
         switch self {
@@ -29,7 +27,7 @@ enum Confidence: Equatable {
     }
 }
 
-/// Zoom band at which a fact becomes worth showing.
+/// Zoom band at which a fact appears.
 enum Detail: Int, Comparable {
     case primary = 0     // always visible once the node is legible
     case secondary = 1   // mid zoom
@@ -145,7 +143,7 @@ struct NetworkMap {
 
 enum TopologyBuilder {
 
-    /// Assembles the map from what the app has actually observed.
+    /// Assembles the map from observed network data.
     @MainActor
     static func build(sample: WiFiSample?,
                       status: LinkStatus,
@@ -185,7 +183,7 @@ enum TopologyBuilder {
 
         var internetFacts = [
             Fact(label: "Reachability", value: pinger.enabled ? "Gateway only" : "Not tested", detail: .primary),
-            Fact(label: "Why", value: "This app only ever talks to your own router, so anything upstream is outside what it can honestly report.", detail: .secondary, inspectorOnly: true)
+            Fact(label: "Why", value: "The app communicates only with the local router. It does not test anything upstream.", detail: .secondary, inspectorOnly: true)
         ]
         if let primary = alternatePrimaryInterface {
             internetFacts.insert(
@@ -285,7 +283,7 @@ enum TopologyBuilder {
                 subtitle: "Switching between router and AP",
                 facts: [
                     Fact(label: "What's here", value: "Any switches, controllers or uplinks between the access point and the router.", detail: .primary, inspectorOnly: true),
-                    Fact(label: "Why unknown", value: "These operate below the layer this Mac can see. Revealing them needs LLDP, CDP or switch access — none of which this app does.", detail: .secondary, inspectorOnly: true)
+                    Fact(label: "Why unknown", value: "These operate below the layer this Mac can see. Detection requires LLDP, CDP, or switch access. This app does not use those sources.", detail: .secondary, inspectorOnly: true)
                 ],
                 confidence: .unobserved, column: 0, row: 2))
             map.edges.append(MapEdge(id: "router-fabric", from: "router", to: "fabric",
@@ -541,9 +539,7 @@ enum TopologyBuilder {
                 facts.append(Fact(label: "Not listed", value: "\(neighbours.count - shown)",
                                   detail: .full, tint: .orange))
             }
-            // A count of how many neighbours could actually be identified says
-            // something useful on its own: lots of randomised addresses means a
-            // guest network or privacy-conscious clients.
+            // The identified count helps distinguish hardware from randomized addresses.
             let named = neighbours.filter { if case .known = vendors.lookup($0.mac) { return true } else { return false } }.count
             facts.insert(Fact(label: "Identified", value: "\(named) of \(neighbours.count)", detail: .secondary), at: 1)
             map.nodes.append(MapNode(

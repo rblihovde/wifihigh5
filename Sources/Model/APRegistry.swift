@@ -30,8 +30,7 @@ struct APRecord: Codable, Identifiable {
 
 /// Local-only store of AP nicknames and history.
 ///
-/// Persisted as JSON under Application Support. Nothing here ever leaves the
-/// machine — that is a deliberate property of this tool, not an accident.
+/// Stored as JSON under Application Support. The app does not transmit this data.
 @MainActor
 final class APRegistry: ObservableObject {
     @Published private(set) var records: [String: APRecord] = [:]
@@ -171,8 +170,8 @@ final class APRegistry: ObservableObject {
 
     /// Throttles the frequent `observe` writes.
     ///
-    /// Deliberately not a debounce: `observe` fires on every poll, so a
-    /// restarting timer would be pushed back forever and never write at all.
+    /// This is not a debounce. `observe` fires on every poll, so a restarting
+    /// timer would continue to move the save deadline and would never write.
     /// A pending save keeps its deadline no matter how many changes follow.
     private func scheduleSave() {
         guard canPersist else { return }

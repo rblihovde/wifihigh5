@@ -2,8 +2,8 @@ import SwiftUI
 
 /// A reference for every reading the app shows.
 ///
-/// Deliberately out of the way in the Help menu: the main window stays a dense
-/// instrument, and the explanations live here for when a number needs one.
+/// Reference information for the readings shown in the main window.
+/// The Help menu provides access to this content.
 struct HelpTopic: Identifiable, Hashable {
     let id = UUID()
     var term: String
@@ -203,7 +203,7 @@ struct HelpView: View {
                 quickPoint("Signal alone can lie. Check clarity too.",
                            "A strong signal on a noisy channel still performs badly. Signal clarity (SNR) is the better predictor.")
                 quickPoint("Know which access point you are on.",
-                           "A reading is only actionable if you know which radio produced it. Nickname your access points and the graph colours follow.")
+                           "A reading is useful only when you know which radio produced it. Name your access points to use the same colours on the graph.")
             }
             Spacer()
         }

@@ -1,8 +1,7 @@
 import Foundation
 
-/// Whether this is the screenshot build. Present in every build so the
-/// interface can compile against it; the value is a compile-time constant, so
-/// a shipping build folds every check away to false.
+/// Indicates whether the app was compiled for App Store screenshots.
+/// Shipping builds set this compile-time constant to false.
 enum DemoBuild {
     static var isActive: Bool {
         #if DEMO_SCREENSHOTS
@@ -17,16 +16,12 @@ enum DemoBuild {
 
 /// Placeholder network identifiers for App Store screenshots.
 ///
-/// Screenshots of this app necessarily show the network it was taken on, and a
-/// BSSID can be resolved to a physical location through public databases. That
-/// makes publishing a real one on a store page a genuine disclosure, so the
-/// screenshot build substitutes invented identifiers at the point they enter
-/// the app. Every view, export and report downstream then shows the same safe
-/// values without knowing anything about it.
+/// A screenshot can show the source network. Public databases can associate a
+/// BSSID with a physical location. The screenshot build substitutes placeholder
+/// identifiers before the data reaches a view, export, or report.
 ///
-/// This is compiled in only when the DEMO_SCREENSHOTS flag is passed, which
-/// only tools/screenshots.sh does. It is absent from every shipping build —
-/// `build.sh` and `build-appstore.sh` never define it.
+/// This code is available only when tools/screenshots.sh sets the
+/// DEMO_SCREENSHOTS flag. Shipping build scripts do not set the flag.
 enum DemoIdentifiers {
 
     /// Documentation-range values, chosen so nothing here maps to real

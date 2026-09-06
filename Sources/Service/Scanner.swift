@@ -34,9 +34,7 @@ struct ChannelLoad: Identifiable {
 
 /// Runs an explicit, user-initiated scan of nearby access points.
 ///
-/// This is the one part of the app that transmits: a scan sends probe requests,
-/// exactly as joining a network does. It never runs on its own — the operator
-/// has to ask for it — so the app stays passive by default on a client site.
+/// A scan sends standard Wi-Fi probe requests. It starts only after user action.
 @MainActor
 final class Scanner: ObservableObject {
     @Published private(set) var results: [ScanResult] = []
@@ -114,7 +112,7 @@ final class Scanner: ObservableObject {
         return Int(Int32.max)
     }
 
-    /// Other radios advertising the SSID we are on — the roam candidates.
+    /// Other radios that advertise the current SSID.
     func roamCandidates(for ssid: String?, currentBSSID: String?) -> [ScanResult] {
         guard let ssid else { return [] }
         return results.filter {

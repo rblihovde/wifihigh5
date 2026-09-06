@@ -55,8 +55,12 @@ else
 fi
 
 if [ "${1:-}" = "--check" ]; then
-    [ "$missing" -eq 0 ] && echo "==> Ready to build." || echo "==> Not ready yet; see above."
-    exit 0
+    if [ "$missing" -eq 0 ]; then
+        echo "==> Ready to build."
+        exit 0
+    fi
+    echo "==> Not ready yet; see above."
+    exit 1
 fi
 
 if [ "$missing" -ne 0 ]; then
@@ -105,11 +109,26 @@ codesign --force \
 
 codesign --verify --strict --verbose=2 "${BUNDLE}" 2>&1 | sed 's/^/    /'
 
-# The sandbox entitlement must actually be present, or the upload is rejected
-# after the fact rather than here.
+# Confirm that the signed app contains the sandbox entitlement.
 BUNDLE_ENTITLEMENTS=$(codesign -d --entitlements - "${BUNDLE}" 2>/dev/null || true)
 if ! grep -q "app-sandbox" <<<"${BUNDLE_ENTITLEMENTS}"; then
     echo "!! The signed bundle has no app-sandbox entitlement; App Store will reject it." >&2
+    exit 1
+fi
+
+# Import and export use NSOpenPanel/NSSavePanel. The sandbox grants access to
+# those user-selected files only when this entitlement is signed into the app.
+if ! grep -q "files.user-selected.read-write" <<<"${BUNDLE_ENTITLEMENTS}"; then
+    echo "!! The signed bundle cannot read and write user-selected files." >&2
+    echo "   Import and export would fail in the App Store sandbox." >&2
+    exit 1
+fi
+
+# A locally-created certificate can have the expected display name while still
+# being self-signed. Require Apple's certificate chain before packaging.
+SIGNATURE_INFO=$(codesign -dvvv "${BUNDLE}" 2>&1 || true)
+if ! grep -Fq "Apple Worldwide Developer Relations Certification Authority" <<<"${SIGNATURE_INFO}"; then
+    echo "!! The app is not signed through Apple's distribution certificate chain." >&2
     exit 1
 fi
 
@@ -136,6 +155,22 @@ echo "==> Building installer package"
 productbuild --component "${BUNDLE}" /Applications \
     --sign "${PKG_CERT}" \
     "${PKG}"
+
+if ! PKG_SIGNATURE=$(pkgutil --check-signature "${PKG}" 2>&1); then
+    echo "!! The installer package signature could not be verified." >&2
+    echo "${PKG_SIGNATURE}" | sed 's/^/    /' >&2
+    exit 1
+fi
+if grep -Fqi "untrusted certificate" <<<"${PKG_SIGNATURE}"; then
+    echo "!! The installer package is signed by an untrusted certificate." >&2
+    echo "${PKG_SIGNATURE}" | sed 's/^/    /' >&2
+    exit 1
+fi
+if ! grep -Fq "Apple Worldwide Developer Relations Certification Authority" <<<"${PKG_SIGNATURE}"; then
+    echo "!! The installer package is not signed through Apple's certificate chain." >&2
+    echo "${PKG_SIGNATURE}" | sed 's/^/    /' >&2
+    exit 1
+fi
 
 echo
 echo "==> Built ${PKG}"

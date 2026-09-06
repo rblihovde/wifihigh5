@@ -41,7 +41,7 @@ struct SurveySession: Identifiable, Codable {
     }
 
     /// Readings taken between one waypoint and the next, which is how a
-    /// walkthrough is actually read back: per place, not per second.
+    /// Reports group these readings by place instead of by second.
     func leg(for waypoint: Waypoint) -> [WiFiSample] {
         let ordered = waypoints.sorted { $0.time < $1.time }
         guard let i = ordered.firstIndex(where: { $0.id == waypoint.id }) else { return [] }

@@ -23,6 +23,11 @@
     <key>com.apple.security.network.client</key>
     <true/>
 
+    <!-- Grants access only to files the user explicitly chooses in an Open or
+         Save panel. Required for AP-map import and CSV/HTML/JSON exports. -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+
     <!-- macOS classifies Wi-Fi network names as location data, so this is what
          allows the SSID and BSSID to be read. No location fix is ever
          requested and no position is stored or transmitted. -->

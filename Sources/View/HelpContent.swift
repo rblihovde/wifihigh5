@@ -2,9 +2,7 @@ import Foundation
 
 /// The reference text behind the Help window.
 ///
-/// Written for someone standing in a building trying to decide something, not
-/// for someone studying radio theory: what the number is, what a good one looks
-/// like, and what to do when it isn't good.
+/// Each topic defines a value, gives a useful range, and lists relevant actions.
 enum HelpContent {
 
     static let topics: [HelpTopic] = signal + radio + accessPoints + walkthroughs + networkMap + network + permissions + shortcuts
@@ -17,9 +15,9 @@ enum HelpContent {
             category: .signal,
             short: "How loud the access point sounds to this Mac, in dBm. Closer to zero is stronger.",
             body: [
-                "RSSI is measured in dBm — decibels relative to one milliwatt. The values are negative because Wi-Fi signals are far weaker than that reference point, so −40 dBm is a strong signal and −85 dBm is a very weak one.",
+                "RSSI is measured in dBm, or decibels relative to one milliwatt. Wi-Fi values are negative. −40 dBm is strong, while −85 dBm is very weak.",
                 "The scale is logarithmic, not linear. Every 3 dB is roughly a doubling or halving of power, and every 10 dB is a factor of ten. That is why the difference between −50 and −60 matters far more than the single digit change suggests.",
-                "Signal strength alone does not determine whether the connection works well. A strong signal on a congested or noisy channel can still perform poorly, which is why signal clarity is worth checking alongside it."
+                "Signal strength alone does not determine whether the connection works well. A strong signal on a congested or noisy channel can still perform poorly. Check signal clarity with signal strength."
             ],
             scale: [
                 ("Excellent", "−50 dBm and up", "Full performance. Anything works, including large transfers."),
@@ -50,7 +48,7 @@ enum HelpContent {
             category: .signal,
             short: "The gap between your signal and the background noise. The best single predictor of real speed.",
             body: [
-                "Signal-to-noise ratio is simply signal strength minus the noise floor, expressed in dB. A signal of −55 dBm against a −90 dBm noise floor gives 35 dB of clarity.",
+                "Signal-to-noise ratio is signal strength minus the noise floor. A signal of −55 dBm with a −90 dBm noise floor gives 35 dB of clarity.",
                 "This matters more than raw signal strength because Wi-Fi radios choose their data rate based on how cleanly they can hear each other. A weak signal in a quiet room often outperforms a strong signal in a noisy one.",
                 "If signal strength looks acceptable but performance is poor, low clarity is the usual explanation. The fix is usually a different channel or removing the interference source, not moving closer."
             ],
@@ -67,19 +65,19 @@ enum HelpContent {
             category: .signal,
             short: "How much the signal moved over the last minute. Steady is better than strong-but-swinging.",
             body: [
-                "This is the average distance each reading sat from the mean over the window — a plain measure of how much the signal is bouncing around.",
+                "This is the average distance between each reading and the mean for the selected period. It measures signal variation.",
                 "Under about ±3 dB is steady. Above roughly ±7 dB the signal is changing quickly, which usually means you are walking, standing at the edge of a coverage cell, or something is intermittently blocking the path.",
-                "High variation while standing still is worth investigating. It often points to interference that comes and goes, or to a client caught between two access points at similar strength."
+                "Investigate high variation while standing still. It often points to intermittent interference or to a client between two access points with similar signal strength."
             ]
         ),
         HelpTopic(
             term: "Transmit rate",
             category: .signal,
-            short: "The speed the radios last negotiated — a ceiling, not a measured throughput.",
+            short: "The last rate negotiated by the radios. This is not measured throughput.",
             body: [
                 "This is the physical-layer rate the Mac and the access point agreed on for the most recent frames. It is not a speed test and does not tell you what a file transfer will achieve.",
                 "Real throughput is typically somewhere between a third and a half of this figure once protocol overhead, airtime shared with other clients, and retries are accounted for.",
-                "It is still a useful signal: a rate that collapses as you walk is direct evidence that the link is degrading, often before signal strength alone makes it obvious."
+                "A falling rate while you walk indicates that the link is degrading. The rate can fall before signal strength changes enough to show a problem."
             ]
         ),
         HelpTopic(
@@ -88,7 +86,7 @@ enum HelpContent {
             short: "How hard this Mac's own radio is driving, in milliwatts.",
             body: [
                 "This reflects the Mac's transmit power, not the access point's. macOS adjusts it based on the regulatory domain and power-saving state.",
-                "It is mostly informational. A low value alongside a weak signal can indicate the Mac is conserving power rather than that coverage is genuinely poor."
+                "This value is informational. A low value with weak signal can mean that the Mac is conserving power."
             ]
         )
     ]
@@ -104,7 +102,7 @@ enum HelpContent {
                 "2.4 GHz travels furthest and penetrates walls best, but has only three non-overlapping channels and shares its spectrum with Bluetooth, microwaves and cordless phones. It is almost always the most congested band.",
                 "5 GHz offers far more channels and much higher speeds, at the cost of shorter range and weaker wall penetration. It is the right default for most office coverage.",
                 "6 GHz (Wi-Fi 6E) adds a large block of clean spectrum with very little legacy congestion, but the shortest range of the three. It requires WPA3 and a client that supports it.",
-                "A Mac sitting on 2.4 GHz when 5 GHz is available often indicates it is clinging to a distant access point, which is worth checking during a walkthrough."
+                "A Mac on 2.4 GHz when 5 GHz is available can indicate a connection to a distant access point. Check this during a walkthrough."
             ]
         ),
         HelpTopic(
@@ -122,18 +120,18 @@ enum HelpContent {
             category: .radio,
             short: "How much spectrum each transmission uses. Wider is faster but less resilient.",
             body: [
-                "Doubling the width roughly doubles the theoretical speed. 20 MHz is the narrowest and most robust; 40, 80 and 160 MHz progressively trade robustness for throughput.",
+                "Doubling the width can double the theoretical speed. A 20 MHz channel is the narrowest and most resistant to interference. Wider channels can provide more throughput.",
                 "Wider channels also collide with more neighbours and are more vulnerable to interference. In a dense environment a 40 MHz channel frequently outperforms an 80 MHz one in practice.",
-                "On 2.4 GHz, anything wider than 20 MHz is generally a mistake — there is not enough spectrum for it without overlapping."
+                "On 2.4 GHz, channels wider than 20 MHz overlap more of the available spectrum."
             ]
         ),
         HelpTopic(
             term: "PHY mode (Wi-Fi generation)",
             category: .radio,
-            short: "Which Wi-Fi standard the link is actually running.",
+            short: "The Wi-Fi standard negotiated for the current link.",
             body: [
                 "802.11n is Wi-Fi 4, 802.11ac is Wi-Fi 5, 802.11ax is Wi-Fi 6 and 6E, and 802.11be is Wi-Fi 7. The mode shown is what this link negotiated, not the best the hardware supports.",
-                "A modern Mac connecting at 802.11n usually means it has fallen back to 2.4 GHz or associated with an older access point — often a sign of a coverage gap rather than a hardware limit."
+                "An 802.11n connection can mean that the Mac uses 2.4 GHz or an older access point. It can also indicate a coverage gap."
             ]
         ),
         HelpTopic(
@@ -141,9 +139,9 @@ enum HelpContent {
             category: .radio,
             short: "How the link is encrypted. Open networks carry no link-layer encryption at all.",
             body: [
-                "WPA3 is current; WPA2 remains common and acceptable. WPA and WEP are obsolete and should be treated as findings if you encounter them on a client site.",
-                "An Open network encrypts nothing at the link layer. Anyone in range can read unencrypted traffic. The app flags this in red because it is worth raising immediately.",
-                "Enhanced Open (OWE) encrypts traffic without requiring a password, and is a meaningful improvement over a genuinely open network for guest access."
+                "WPA3 is current. WPA2 remains common and acceptable. WPA and WEP are obsolete and should be treated as findings if you encounter them on a client site.",
+                "An Open network has no link-layer encryption. Anyone in range can read unencrypted traffic. The app flags this in red because it requires attention.",
+                "Enhanced Open (OWE) encrypts traffic without a password. It provides more protection than an open guest network."
             ]
         ),
         HelpTopic(
@@ -166,7 +164,7 @@ enum HelpContent {
             short: "The SSID is the network name. The BSSID is the individual radio you are talking to.",
             body: [
                 "A single SSID such as “Acme-Corp” may be broadcast by dozens of access points across a building. The BSSID is the MAC address of the one specific radio serving you right now.",
-                "This distinction is the whole point of a walkthrough. “Signal is poor” is not actionable; “signal is poor on the radio ending :8e:fa, in the north corridor” is.",
+                "This distinction is important during a walkthrough. “Signal is poor” does not identify the affected radio. “Signal is poor on the radio ending :8e:fa in the north corridor” does.",
                 "macOS treats network names as location data, so both values are withheld unless Location Services is granted. Without them the app falls back to identifying access points by their radio characteristics."
             ]
         ),
@@ -175,8 +173,8 @@ enum HelpContent {
             category: .accessPoints,
             short: "Your own name for an access point, stored only on this Mac.",
             body: [
-                "A BSSID like 00:00:5e:00:53:a1 tells you nothing at a glance. Naming it “Reception ceiling” makes every later reading immediately readable, and the name follows that radio everywhere in the app — the graph legend, the change log, exports and reports.",
-                "You can also record a site or floor and free-form notes, and pin a specific colour so the same access point is recognisable at a glance on the graph.",
+                "A name such as “Reception ceiling” is easier to recognize than a BSSID. The app uses this name in charts, logs, exports, and reports.",
+                "You can also record a site, floor, and notes. Assign a colour to identify the same access point on the graph.",
                 "Nicknames are written to a JSON file in Application Support on this Mac and are never transmitted. They can be exported and imported if you want to move a site's names to another machine."
             ]
         ),
@@ -221,7 +219,7 @@ enum HelpContent {
             short: "Press ⌘M to label where you are. This is what makes a walk readable afterwards.",
             body: [
                 "Without labels a walkthrough is an unlabelled squiggle you have to reconstruct from memory. With them the report reads back per place: “Reception −42, east stairwell −78, roamed twice”.",
-                "The timestamp is captured the instant you press ⌘M, not when you finish typing the name, so the label lands on the reading that describes where you actually were.",
+                "The app records the timestamp when you press ⌘M. It does not wait until you finish entering the name.",
                 "Labels you have already used are offered for one-click reuse, which matters when the same names repeat on every floor.",
                 "In reports and CSV exports, every reading is attributed to the most recent spot marked before it, so the data groups by place automatically."
             ]
@@ -242,7 +240,7 @@ enum HelpContent {
             short: "Shaded areas on the graph where nothing was measured.",
             body: [
                 "If the Mac sleeps, sampling is paused, or the app is suspended, no readings exist for that period.",
-                "Rather than drawing a straight line across the hole — which would assert data that was never collected — the graph breaks the trace and shades the gap. Exports treat it the same way."
+                "The graph breaks the trace and shades the gap. It does not draw a line across a period with no readings."
             ]
         )
     ]
@@ -257,13 +255,13 @@ enum HelpContent {
             body: [
                 "The map runs from this Mac at the bottom, through the access point serving it, to the Wi-Fi subnet's router and then to an explicitly untested upstream. It is the current Wi-Fi path plus local evidence, not a complete network inventory. Zoom in to reveal more, click a node to see all of its facts and sources, or use Jump To when the drawing is large.",
                 "If a VPN, Ethernet adapter or another service owns the Mac's default route, the map calls that out. It continues to show the local Wi-Fi path for onsite diagnosis without claiming that all Internet traffic follows it.",
-                "The important thing is what the map refuses to guess. Line style carries confidence, and anything this Mac cannot observe is drawn as unobserved rather than quietly left out — a diagram that looks complete when it isn't is worse than no diagram.",
-                "Facts gathered at different times show their source and age in the inspector. Nearby access-point readings are snapshots from the last user-requested scan; refresh them after moving around a site."
+                "Line style identifies measured, inferred, and unobserved connections. The map includes an unobserved segment when this Mac cannot read part of the path.",
+                "Facts gathered at different times show their source and age in the inspector. Nearby access-point readings are snapshots from the last user-requested scan. Refresh them after moving around a site."
             ],
             scale: [
                 ("Measured", "solid blue", "Read directly from the system. This is fact."),
                 ("Inferred", "solid amber", "Derived from measured facts, with the reasoning shown on the node."),
-                ("Not observable", "grey dashed", "Genuinely invisible to this app. Nothing is being claimed.")
+                ("Not observable", "grey dashed", "This Mac cannot observe this part of the path.")
             ]
         ),
         HelpTopic(
@@ -274,7 +272,7 @@ enum HelpContent {
                 "Manufacturers assign consecutive hardware addresses to the interfaces of a single chassis. When the router's MAC and the access point's BSSID share a vendor prefix and sit within a few addresses of each other, they are almost certainly the same physical device.",
                 "Router and access point remain separate logical nodes so their measured roles stay clear. The link between them is solid amber and labelled Inferred, and the access-point inspector shows the addresses and method so you can judge the reasoning yourself.",
                 "Software-assigned and multicast addresses are excluded from this inference because adjacency in those address ranges says nothing reliable about physical hardware.",
-                "On a larger site the link is not assumed. The map shows an unobserved path between the roles instead — that gap is where switching and controller infrastructure may live."
+                "On a larger site, the map shows an unobserved path between these roles. Switches or controller infrastructure can exist in this segment."
             ]
         ),
         HelpTopic(
@@ -282,7 +280,7 @@ enum HelpContent {
             category: .networkMap,
             short: "Switches work below the layer this Mac can see.",
             body: [
-                "Switches forward frames without taking an IP address in your path, so nothing this Mac sends or receives reveals them. Discovering them needs LLDP or CDP neighbour data, or management access to the switch itself — none of which this app does.",
+                "Switches can forward frames without an IP address in the path. Detection requires LLDP, CDP, or management access. This app does not use those sources.",
                 "Rather than drawing a tidy line straight from access point to router and implying there is nothing between, the map inserts an explicit unobserved segment. Anything in that gap is real but invisible from here."
             ]
         ),
@@ -291,8 +289,8 @@ enum HelpContent {
             category: .networkMap,
             short: "Hosts already in this Mac's ARP cache. Nothing was scanned.",
             body: [
-                "These are IPv4 neighbours this Mac has already exchanged traffic with in the normal course of being connected. The list is limited to the active Wi-Fi interface and its current subnet so Ethernet, VPN and virtual-interface entries are not mixed in. Reading the cache is entirely passive — no address is probed and the subnet is never swept.",
-                "This is a recent cache, not a device inventory: quiet hosts and IPv6-only neighbours may be absent. The count is the useful overview; a bounded address list and any omitted count appear when you open the node. A randomised MAC is flagged because it will not match a wired inventory."
+                "These are IPv4 neighbors from the Mac's ARP cache. The app limits the list to the active Wi-Fi interface and subnet. It does not probe these addresses.",
+                "This is a recent cache, not a device inventory. Quiet hosts and IPv6-only neighbours may be absent. The node shows a bounded address list and any omitted count. A randomised MAC is flagged because it will not match a wired inventory."
             ]
         ),
         HelpTopic(
@@ -302,7 +300,7 @@ enum HelpContent {
             body: [
                 "Every manufacturer registers blocks of MAC addresses with the IEEE, so the first part of an address identifies who built the hardware. The app carries a copy of that registry and resolves router, access point and neighbour addresses against it.",
                 "The registry assigns blocks in three sizes, and a small block sits inside a larger shared one. The app always takes the longest match, so a company holding a 36-bit assignment inside another organisation's prefix is named correctly rather than being attributed to the block holder.",
-                "The database is embedded in the app and never fetched at runtime. That is deliberate: this tool is meant to run on client networks, so it must not reach the network to answer a question about a client's own hardware. Refresh it with tools/update-oui.sh and rebuild.",
+                "The database is embedded in the app. The app does not download it at runtime. Run tools/update-oui.sh and rebuild to update the database.",
                 "A randomised address has no manufacturer to find. Where the second bit of the first octet is set, the address was assigned by software rather than burned in, and the app says so instead of naming a vendor that would be meaningless."
             ]
         ),
@@ -312,8 +310,8 @@ enum HelpContent {
             short: "Software-assigned MACs that identify nothing about the hardware.",
             body: [
                 "Phones and laptops increasingly present a different MAC address to every network they join, and virtual interfaces invent addresses too. These are flagged as locally administered by a bit in the address itself.",
-                "This matters twice over. A vendor lookup on such an address is meaningless, so the app refuses to guess one. And if a client is filtering by MAC or matching against DHCP logs, the address they see is this rotating one rather than the hardware address printed on the device.",
-                "A subnet full of randomised addresses usually means a guest network or a modern device population, which is itself worth knowing."
+                "A software-assigned address does not identify a hardware vendor. DHCP logs show this address instead of the permanent hardware address.",
+                "Many randomized addresses can indicate a guest network or a group of modern client devices."
             ]
         )
     ]
@@ -347,7 +345,7 @@ enum HelpContent {
             short: "The address you were assigned, who assigned it, and when it expires.",
             body: [
                 "A very short lease can indicate a constrained address pool, which on a busy guest network sometimes explains intermittent connection failures.",
-                "The DHCP server address is often, but not always, the same device as your default gateway. A mismatch is worth noting on an unfamiliar network."
+                "The DHCP server address is often the same device as your default gateway. Check a mismatch on an unfamiliar network."
             ]
         )
     ]
@@ -363,7 +361,7 @@ enum HelpContent {
                 "Access points can be looked up in public databases that map them to physical locations, which is how Wi-Fi positioning works. Because of that, macOS treats the SSID and BSSID as revealing your position and withholds both from any app without Location Services.",
                 "The gate is about your position, not the client's data. Granting it lets the app read the network name and the access point identifier of the link this Mac has already joined.",
                 "This app never requests a location fix. It asks for the authorisation once, and after that only reads the network identifiers. Nothing about your position is recorded, stored or transmitted.",
-                "Everything else — signal, noise, clarity, channel, band, width, transmit rate, and all IP details — works normally without the permission."
+                "Signal, noise, clarity, channel, band, width, transmit rate, and IP details remain available without permission."
             ]
         ),
         HelpTopic(
@@ -372,7 +370,7 @@ enum HelpContent {
             short: "It listens. Two features transmit, both off until you switch them on.",
             body: [
                 "By default the app only reads the state of the link this Mac has already joined, plus the IP settings this Mac was assigned. It captures no traffic, probes no other hosts, touches no credentials, and sends nothing off the machine.",
-                "Scanning nearby networks transmits probe requests — the same frames any device sends when joining a network. It runs only when you press the button.",
+                "A nearby-network scan sends standard Wi-Fi probe requests. The scan starts only when you press the button.",
                 "The gateway test sends ICMP echo to your own default router and to nothing else. It is off by default.",
                 "The Diagnostics tab states all of this inside the app, so you can show it to whoever asks what you are running."
             ]
@@ -383,7 +381,7 @@ enum HelpContent {
             short: "Access point nicknames and saved walkthroughs, on this Mac only.",
             body: [
                 "Both live in Application Support on this Mac. Nothing is uploaded, and there are no accounts or telemetry.",
-                "Worth keeping in mind: once you start naming access points with client identifiers, that file becomes a small inventory of client infrastructure that travels with your laptop. Saved walkthroughs are the same. Both can be deleted per item when an engagement ends."
+                "Access point names can identify client infrastructure. Saved walkthroughs can contain the same type of information. Delete individual records when an engagement ends."
             ]
         )
     ]
@@ -394,10 +392,10 @@ enum HelpContent {
         HelpTopic(
             term: "Keyboard shortcuts",
             category: .shortcuts,
-            short: "The ones worth knowing while walking a site.",
+            short: "Shortcuts for a site walkthrough.",
             body: [
-                "⌘M marks the spot you are standing in. This is the one to remember — it works without reaching for the mouse and timestamps the moment you press it.",
-                "⌘P pauses and resumes sampling. Pausing freezes the graph rather than letting it scroll away, which is useful when you want to read something carefully.",
+                "⌘M marks the current location and records the time.",
+                "⌘P pauses or resumes sampling. A paused chart does not scroll.",
                 "⌘K clears the current session and starts fresh.",
                 "⌘R scans nearby networks. Remember that scanning transmits.",
                 "⌘? opens this help window."
@@ -411,9 +409,7 @@ enum HelpContent {
 /// Maps the short labels the interface uses onto the help topic that explains
 /// them, so hover help and the Help window never drift apart.
 ///
-/// Labels with no genuine match deliberately resolve to nothing rather than to
-/// something approximate: a tooltip that explains the wrong thing is worse than
-/// no tooltip.
+/// Labels with no exact match do not receive a help topic.
 enum HelpIndex {
 
     private static let aliases: [String: String] = [

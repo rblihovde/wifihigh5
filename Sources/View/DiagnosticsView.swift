@@ -129,7 +129,7 @@ struct DiagnosticsView: View {
                     "Capture, inspect or decode any traffic.",
                     "Probe, port-scan or fingerprint other hosts.",
                     "Attempt to join networks or handle credentials.",
-                    "Send anything off this Mac — no telemetry, no cloud, no accounts."
+                    "Send telemetry or use cloud services. The app has no accounts."
                 ], .secondary, "xmark")
 
                 group("It transmits only when you ask", [
@@ -210,7 +210,7 @@ struct DiagnosticsView: View {
     private var dataCard: some View {
         Card("Local data", systemImage: "externaldrive") {
             VStack(alignment: .leading, spacing: 9) {
-                Text("Access point nicknames are the only thing written to disk.")
+                Text("Access point nicknames and saved walkthroughs are written to disk on this Mac only.")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                 Text(registry.storeLocation)
                     .font(.system(size: 10, design: .monospaced))

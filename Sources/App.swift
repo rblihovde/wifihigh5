@@ -203,9 +203,7 @@ struct MenuBarPanel: View {
 }
 
 
-/// Help lives in its own scene, so the menu item needs the window-opening
-/// action from the environment — available to a `Commands` type but not to
-/// `App` itself.
+/// The Help command opens the separate Help scene.
 struct HelpCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 

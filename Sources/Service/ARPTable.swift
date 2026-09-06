@@ -27,9 +27,8 @@ struct ARPEntry: Hashable {
         return bytes[0] & 0x01 == 0
     }
 
-    /// The vendor prefix. Shown as-is rather than resolved to a name: without a
-    /// local OUI registry any vendor label would be a guess, and a wrong one in
-    /// front of a client is worse than none.
+    /// The first three octets of the address. Vendor resolution requires the
+    /// local OUI registry.
     var oui: String {
         mac.split(separator: ":").prefix(3).joined(separator: ":")
     }
@@ -37,9 +36,8 @@ struct ARPEntry: Hashable {
 
 /// Reads the kernel's ARP cache.
 ///
-/// Entirely passive: these entries are already present because this Mac has
-/// exchanged traffic with those hosts in the normal course of being connected.
-/// Nothing is sent, no address is probed, and the subnet is never swept.
+/// These entries exist because this Mac has exchanged traffic with the hosts.
+/// This read does not send traffic, probe addresses, or sweep the subnet.
 enum ARPTable {
 
     static func read() -> [ARPEntry] {

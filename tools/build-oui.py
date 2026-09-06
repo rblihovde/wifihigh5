@@ -13,6 +13,14 @@ and the smaller block is the accurate answer.
 import csv, re, sys, datetime
 
 NOISE = re.compile(r"[\s,.]+$")
+EXCLUDED_PREFIXES = {
+    "8C20F1",
+    "9C69B42",
+    "AC84FA",
+    "B03DC2",
+    "C4D7DC",
+    "F4D0A7",
+}
 
 
 def clean(name: str) -> str:
@@ -28,6 +36,8 @@ def load(path, expected_width):
             prefix = (row.get("Assignment") or "").strip().upper()
             name = clean(row.get("Organization Name") or "")
             if len(prefix) != expected_width or not name:
+                continue
+            if prefix in EXCLUDED_PREFIXES:
                 continue
             if name.lower() in {"private", "ieee registration authority"}:
                 continue

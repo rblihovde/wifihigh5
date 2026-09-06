@@ -190,9 +190,7 @@ final class WiFiMonitor: ObservableObject {
 
     /// An in-progress walkthrough.
     ///
-    /// Kept separate from the live buffer because that one is deliberately
-    /// capped for chart performance, while a recording must retain every
-    /// reading taken for the whole walk.
+    /// The live buffer has a size limit. A recording retains the complete walk.
     struct Recording {
         var name: String
         var site: String
@@ -239,8 +237,7 @@ final class WiFiMonitor: ObservableObject {
     // MARK: Waypoints
 
     /// Marks the current moment. The caller supplies the label afterwards, but
-    /// the timestamp and reading are captured here so they describe where the
-    /// operator actually was when the shortcut fired.
+    /// This method records the timestamp and reading before the caller adds a label.
     @discardableResult
     func addWaypoint(label: String, note: String = "", at time: Date = Date()) -> Waypoint {
         let nearest = samples.last

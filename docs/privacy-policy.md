@@ -1,4 +1,4 @@
-# Privacy Policy — WifiHigh5
+# WifiHigh5 Privacy Policy
 
 **Last updated: 5 September 2026**
 
@@ -9,10 +9,9 @@ accounts, no analytics, no crash reporting and no advertising.
 
 Everything the app shows is read from the Mac it is running on:
 
-- The state of the Wi-Fi link this Mac has already joined — signal strength,
-  noise, channel, band, transmit rate, network name and access point identifier.
-- The IP configuration this Mac was assigned — address, subnet, router, DNS and
-  DHCP lease.
+- The state of the current Wi-Fi link, including signal strength, noise, channel,
+  band, transmit rate, network name and access point identifier.
+- The assigned IP address, subnet, router, DNS servers and DHCP lease.
 - The kernel's existing ARP cache, which lists hosts this Mac has already
   exchanged traffic with in the normal course of being connected. Nothing is
   scanned or probed to produce it.
@@ -36,7 +35,7 @@ granted Location Services. The app requests that permission solely to read
 those two values.
 
 The app never requests your position. No coordinate is ever obtained, stored or
-transmitted. If you decline the permission the app still works; only the
+transmitted. If you decline the permission, the app still works. Only the
 network name and access point identifier are unavailable.
 
 ## Network activity

@@ -23,7 +23,7 @@ struct SurveyDetailView: View {
                     summaryCard
                     if legs.isEmpty {
                         Card("Marked spots", systemImage: "mappin") {
-                            Text("No spots were marked during this walk. Press ⌘M while recording to label rooms as you reach them — the report then reads back per place instead of per second.")
+                            Text("No spots were marked during this walk. Press ⌘M while recording to label each room. The report groups readings by room.")
                                 .font(.system(size: 11)).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }

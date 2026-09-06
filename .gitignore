@@ -6,5 +6,5 @@ DerivedData/
 # Screenshot build output
 build/screenshots/
 
-# Provisioning profiles are per-developer and expire; fetch your own
+# Provisioning profiles are specific to each developer and expire.
 Resources/*.provisionprofile

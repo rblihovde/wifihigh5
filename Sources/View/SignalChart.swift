@@ -201,8 +201,7 @@ struct SignalChart: View {
             if !out.isEmpty, out[out.count - 1].key == s.apKey, continuous {
                 out[out.count - 1].points.append(s)
             } else {
-                // Bridge to the previous run so AP changes join seamlessly, but
-                // never across a gap — there the trace must actually break.
+                // Join AP changes to the previous run. Do not join across a gap.
                 var seed: [WiFiSample] = []
                 if continuous, let prev = out.last?.points.last { seed.append(prev) }
                 seed.append(s)

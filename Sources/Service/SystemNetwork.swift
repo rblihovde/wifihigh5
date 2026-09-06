@@ -4,8 +4,8 @@ import SystemConfiguration.SCDynamicStoreCopyDHCPInfo
 import Darwin
 import Combine
 
-/// IP-layer facts about the active interface, read from the system
-/// configuration database. Purely a local read; nothing is sent.
+/// Reads IP-layer data for the active interface from the system configuration
+/// database. This operation does not send network traffic.
 struct IPConfig {
     var ipv4: String?
     var subnetMask: String?
@@ -184,9 +184,8 @@ enum SystemNetwork {
 
 /// Measures round-trip time to the default gateway using ICMP echo.
 ///
-/// Off by default. When enabled it talks only to the local router — the same
-/// traffic any connected client produces — so it stays appropriate on a client
-/// network. No hosts beyond the gateway are contacted.
+/// Off by default. When enabled, it sends ICMP echo requests to the local router.
+/// It does not contact hosts beyond the gateway.
 @MainActor
 final class GatewayPinger: ObservableObject {
     @Published var enabled = false { didSet { enabled ? start() : stop() } }

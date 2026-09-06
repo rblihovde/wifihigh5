@@ -292,7 +292,7 @@ struct RoamLogView: View {
             if let d = ev.delta {
                 Pill(text: d >= 0 ? "+\(d) dB" : "\(d) dB",
                      tint: d >= 0 ? .green : .orange)
-                    .help(d >= 0 ? "Roamed to a stronger radio." : "Roamed to a weaker radio — often a sticky-client symptom.")
+                    .help(d >= 0 ? "Roamed to a stronger radio." : "Roamed to a weaker radio. This can indicate a sticky client.")
             }
         }
         .padding(10)

@@ -24,7 +24,7 @@ struct NearbyView: View {
                 EmptyHint(
                     systemImage: "dot.radiowaves.up.forward",
                     title: "No scan run yet",
-                    message: "A scan lists every access point in range, including the other radios serving the network you are on — useful for judging coverage overlap and channel crowding.\n\nUnlike the rest of this app, scanning transmits: it sends probe requests, exactly as joining a network does.",
+                    message: "A scan lists nearby access points. Use it to check coverage overlap and channel crowding.\n\nA scan sends standard Wi-Fi probe requests.",
                     action: (label: "Scan Now", run: runScan)
                 )
             } else {
@@ -114,8 +114,8 @@ struct NearbyView: View {
                     Image(systemName: delta >= 6 ? "arrow.up.right.circle.fill" : "checkmark.circle.fill")
                         .foregroundStyle(delta >= 6 ? .orange : .green)
                     Text(delta >= 6
-                         ? "A different radio for \(ssid) is about \(delta) dB stronger here. macOS decides when to roam; watch Connection Changes to see whether it switches."
-                         : "\(candidates.count) alternate radio\(candidates.count == 1 ? " is" : "s are") visible for \(ssid). None is meaningfully stronger than the current radio at this spot.")
+                         ? "A different radio for \(ssid) is about \(delta) dB stronger here. macOS decides when to roam. Watch Connection Changes to see whether it switches."
+                         : "\(candidates.count) alternate radio\(candidates.count == 1 ? " is" : "s are") visible for \(ssid). None is at least 6 dB stronger than the current radio at this spot.")
                         .font(.system(size: 11))
                         .fixedSize(horizontal: false, vertical: true)
                 }

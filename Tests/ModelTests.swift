@@ -388,7 +388,7 @@ private func testVendorLookup(databaseURL: URL) {
     expectEqual("locally administered bit detected",
                 db.lookup("02:00:00:00:00:01"), .randomised)
 
-    // 00:00:5E is the IANA block used by VRRP and friends — a good check that
+    // 00:00:5E is the IANA block used by VRRP and related addresses. This checks that
     // reserved assignments resolve rather than falling through as unknown.
     if case .known(let iana) = db.lookup("00:00:5e:00:00:01") {
         expect("IANA reserved block resolves", iana.uppercased().contains("IANA"))
@@ -405,9 +405,7 @@ private func testVendorLookup(databaseURL: URL) {
 
 @MainActor
 private func testHelpIndex() {
-    // Every label the interface actually renders should either resolve to a
-    // topic or be a deliberate omission. A typo in the alias table would
-    // silently drop the tooltip, which is exactly the kind of rot tests catch.
+    // Each supported interface label must resolve to a help topic.
     let expected: [(String, String)] = [
         ("SNR", "Signal clarity (SNR)"),
         ("Signal (RSSI)", "Signal strength (RSSI)"),
@@ -436,8 +434,7 @@ private func testHelpIndex() {
     expectEqual("lookup tolerates a trailing colon",
                 HelpIndex.topic(forLabel: "Noise floor:")?.term, "Noise floor")
 
-    // Labels with no honest match must resolve to nothing rather than to
-    // something approximate.
+    // Labels without an exact match must resolve to nothing.
     expect("unmapped label has no tooltip", HelpIndex.topic(forLabel: "Site") == nil)
     expect("empty label has no tooltip", HelpIndex.topic(forLabel: "") == nil)
 

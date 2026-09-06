@@ -2,9 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Hardened runtime refuses to prompt for a TCC-gated resource unless the
-         app declares it. macOS gates Wi-Fi SSID/BSSID behind Location Services,
-         so this is what allows the permission prompt to appear at all. -->
+    <!-- The location entitlement lets the app request access to SSID and BSSID. -->
     <key>com.apple.security.personal-information.location</key>
     <true/>
 </dict>

@@ -37,7 +37,7 @@ fi
 # The signature is captured before being searched rather than piped into a
 # grep. Under `set -o pipefail` a `grep -q` closes the pipe as soon as it
 # matches, codesign dies of SIGPIPE, and the pipeline reports failure on
-# success — which inverted both of these checks.
+# success. The earlier form inverted both checks.
 SIGNATURE=$(codesign -dvv "${APP}" 2>&1 || true)
 
 # Ad-hoc signatures cannot be notarised, so fail early rather than after upload.
@@ -53,7 +53,7 @@ if ! grep -q "Timestamp=" <<<"${SIGNATURE}"; then
 fi
 
 echo "==> Packaging for submission"
-# notarytool takes a .zip, .pkg or .dmg — never a bare .app bundle. ditto is
+# notarytool accepts a .zip, .pkg, or .dmg. It does not accept an app bundle. ditto is
 # used rather than zip because it preserves the bundle's symlinks and metadata.
 rm -f "${ARCHIVE}"
 ditto -c -k --keepParent "${APP}" "${ARCHIVE}"

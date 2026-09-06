@@ -39,7 +39,7 @@ struct DetailsGrid: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if let snr = s.snr, snr < 20 {
-                        noteRow("Low SNR — noise is close to your signal. Expect retries even if RSSI looks acceptable.", .orange)
+                        noteRow("Low SNR. Noise is close to the signal. Expect retries even if RSSI looks acceptable.", .orange)
                     }
                 }
             } else { unavailable }
@@ -63,7 +63,7 @@ struct DetailsGrid: View {
                             tint: securityIsOpen(s.securityRaw) ? .red : .primary)
                     InfoRow(label: "Country", value: s.countryCode ?? "Unavailable")
                     if securityIsOpen(s.securityRaw) {
-                        noteRow("Open network — traffic is unencrypted at the link layer. Use a VPN.", .red)
+                        noteRow("Open network. Traffic is unencrypted at the link layer. Use a VPN.", .red)
                     }
                     if s.band == .ghz2 {
                         noteRow("2.4 GHz has only three non-overlapping channels and is usually the congested band.", .orange)

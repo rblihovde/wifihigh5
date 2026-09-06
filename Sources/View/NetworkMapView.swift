@@ -23,8 +23,7 @@ struct NetworkMapView: View {
     @State private var selectedNodeID: String?
     @State private var showNotes = false
     @State private var lastViewportSize = CGSize(width: 900, height: 600)
-    /// Until the operator pans or zooms, the drawing keeps framing itself as
-    /// nodes arrive — ARP and scan results land a few seconds after launch.
+    /// Frame new ARP and scan nodes until the user pans or zooms.
     @State private var userAdjusted = false
 
     // Lattice geometry.
@@ -32,12 +31,7 @@ struct NetworkMapView: View {
     private let columnSpacing: CGFloat = 280
     private let rowSpacing: CGFloat = 240
 
-    /// The built topology, held rather than recomputed.
-    ///
-    /// It used to be a computed property, which meant a full rebuild — vendor
-    /// lookups for every neighbour included — on each of the eight or so places
-    /// the body, the layout and the hit testing read it. It is now assembled
-    /// once whenever the data behind it actually moves.
+    /// Cached topology. Rebuild it only when its source data changes.
     @State private var map = NetworkMap()
 
     private func rebuildMap() {
@@ -50,7 +44,7 @@ struct NetworkMapView: View {
             registry: registry, pinger: pinger, vendors: vendors)
     }
 
-    /// How much of each node is worth showing at the current magnification.
+    /// Controls how much of each node appears at the current magnification.
     private var detail: Detail? {
         switch zoom {
         case ..<0.72: return nil
@@ -194,7 +188,7 @@ struct NetworkMapView: View {
                 .font(.system(size: 10, weight: .semibold)).tracking(0.6)
                 .foregroundStyle(.secondary)
                 .fixedSize()
-                .help("The current Wi-Fi path and locally observed context — not a full network inventory")
+                .help("The current Wi-Fi path and local observations. This is not a full network inventory.")
 
             Pill(text: detailName, tint: .blue)
                 .fixedSize()
@@ -428,8 +422,7 @@ struct NetworkMapView: View {
         guard let a = m.node(edge.from), let b = m.node(edge.to) else { return }
         let ra = nodeRect(a), rb = nodeRect(b)
 
-        // Orthogonal routing: leave the lower edge, run to the target's column,
-        // then drop in — the way a schematic is drawn.
+        // Route from the lower edge to the target column, then to the target.
         let start = CGPoint(x: ra.midX, y: ra.maxY)
         let end = CGPoint(x: rb.midX, y: rb.minY)
         let midY = (start.y + end.y) / 2

@@ -1,58 +1,46 @@
 # WifiHigh5
 
-A macOS menu-bar and window app for reading the Wi-Fi link this Mac is on, built
-to be defensible to run on a client's network while you're onsite.
+A macOS app for monitoring the current Wi-Fi connection. It runs in a standard
+window and in the menu bar.
 
 ![Live Monitor](docs/live-monitor.png)
 
 ## What it shows
 
-**Live Monitor** — starts with a plain-language verdict such as “The connection
-looks solid,” “Noise is overpowering the signal,” or “The connection is losing
-router replies,” plus the most useful next step. Raw signal, SNR and negotiated
-rate remain visible alongside a rolling graph and deeper radio, AP, IP and
-interface details.
+**Live Monitor** shows signal strength, noise, SNR, transmit rate, and a rolling
+chart. It also gives a short status summary and a recommended next step.
 
-The graph is the main instrument. The trace is drawn in the colour of whichever
-access point was serving the link at that moment, so a roam appears as a colour
-change rather than something you have to dig out of a log. Dashed vertical
-markers show each transition. Hovering anywhere gives a readout for that instant.
-Optional overlays put the noise floor and the transmit rate on the same plot.
+The chart uses a separate colour for each access point. A colour change marks a
+roam. Dashed vertical lines mark each connection change. Point to the chart to
+see the reading at that time. Optional overlays show noise and transmit rate.
 
-**Network Map** — a vector schematic of the current Wi-Fi path, from this Mac
-through the access point to the local router and an explicitly untested
-upstream, plus clearly bounded local evidence. It is not presented as a full
-network inventory. Pan and zoom; each node reveals more as you get closer,
-clicking one shows its facts, sources and ages, and Jump To keeps a large
-drawing navigable. See below.
+**Network Map** shows the path from this Mac to the access point and router. It
+labels each item as measured, inferred, or unobserved. The map does not claim to
+be a complete network inventory. Pan, zoom, or select a node to inspect its data.
 
-**Access Points** — every AP this Mac has associated with, searchable, with the
-signal range seen at each and the nickname, site and notes you gave it.
+**Access Points** lists each AP that served the connection. Search the list or
+add a nickname, site, colour, and notes.
 
-**Connection Changes** — every association, roam and reconnect, with the signal on both
-sides of the change and the delta. A roam to a *weaker* radio is flagged, which
-is the usual sticky-client signature.
+**Connection Changes** lists each association, roam, and reconnect. It shows the
+signal before and after the change. It also flags roams to a weaker AP.
 
-**Nearby Networks** — an on-demand scan of everything in range, plus channel
-crowding and a plain-language comparison of other radios serving the current
-network. AP count is deliberately described as crowding, not measured airtime
-utilization or interference. See the safety note below.
+**Nearby Networks** runs an on-demand Wi-Fi scan. It shows nearby APs, channel
+crowding, and other radios that serve the current network. AP count does not
+measure airtime use or interference.
 
-**Walkthroughs** — record a walk through a building, mark rooms as you go, and
-export a report. See below.
+**Walkthroughs** records signal data while you walk through a site. Mark rooms
+as you go, then export an HTML or CSV report.
 
-**Diagnostics** — permission state, sampling controls, where data is stored, CSV
-export, and a plain-language statement of what the app does and does not do.
+**Diagnostics** shows permission status, sampling controls, storage paths, and
+CSV export. It also explains the app's network activity.
 
-Every reading in the app is explained in **Help ▸ WifiHigh5 Help**
-(⌘?): what each number is, what a good value looks like, and what to do when it
-isn't. It's a searchable reference kept out of the main window.
+Open **Help > WifiHigh5 Help** (Command-?) for definitions, useful ranges, and
+troubleshooting steps.
 
 ## Naming access points
 
-Signal readings are only actionable once you know *which* radio you were on.
-Click the **+** next to the AP name on the Live Monitor to give it a nickname, a
-site or floor, free-form notes, and a fixed colour for the graph.
+Select the **+** next to an AP name to add a nickname, site, notes, and chart
+colour.
 
 Nicknames are keyed to the AP's BSSID and stored locally as JSON at:
 
@@ -60,138 +48,104 @@ Nicknames are keyed to the AP's BSSID and stored locally as JSON at:
 ~/Library/Application Support/WifiHigh5/access-points.json
 ```
 
-They persist across launches and never leave the machine. Export and import from
-the Access Points tab if you want to move a site's names to another Mac.
+The app keeps this file on the Mac. Use the Access Points tab to export or import
+names.
 
 ## The network map
 
-A schematic, not a floor plan — it shows signal and traffic paths, which is what
-the app can actually know. Physical placement it cannot.
-
-What makes it useful is what it refuses to guess. Line style carries confidence:
+The map shows signal and traffic paths. It does not show physical AP placement.
+Line style shows the source of each connection:
 
 | Style | Meaning |
 |---|---|
-| Solid blue | Measured — read directly from the system |
-| Solid amber | Inferred — derived from measured facts, reasoning shown on the node |
-| Grey dashed | Not observable — genuinely invisible from here |
+| Solid blue | Measured from a system API |
+| Solid amber | Inferred from measured data. The node shows the evidence. |
+| Grey dashed | Not observable from this Mac |
 
-If a VPN, Ethernet adapter or another service owns the default route, the map
-calls that out rather than claiming all Internet traffic follows the Wi-Fi
-gateway. It still shows the local Wi-Fi path that matters for onsite diagnosis.
+If another service owns the default route, the map identifies that service. It
+still shows the local Wi-Fi path.
 
-So the internet node is always dashed: the app only ever talks to your own
-router, and it will not imply it tested anything upstream. Because switches work
-below the layer this Mac can see, the map inserts an explicit unobserved segment
-between access point and router. That gap is where switching or controller
-infrastructure may live; it is not invented as known equipment.
+The internet node is always dashed because the app does not test upstream
+connectivity. The app cannot see switches between the AP and router. It marks
+that part of the path as unobserved.
 
-One inference it does make: when the router's MAC and the access point's BSSID
-share a vendor prefix and sit within a few addresses of each other, they are
-likely one physical box. The logical router and access-point roles remain
-separate, joined by a solid amber Inferred link, and the inspector shows the
-evidence so you can judge the reasoning. Software-assigned and multicast
-addresses are excluded because adjacency there is not hardware evidence.
+The app can infer that the router and AP are one device. It makes this inference
+when their hardware addresses have the same vendor prefix and are close in
+value. The inspector shows the evidence. The check excludes software-assigned
+and multicast addresses.
 
-Hardware vendors are resolved against the IEEE MAC registry, which ships inside
-the app. That is what lets the map say your gateway is a WNC Corporation box
-rather than just showing a hex prefix — and it corroborates the same-chassis
-inference independently, since both radios come back as the same manufacturer.
+The app identifies hardware vendors with an embedded copy of the IEEE MAC
+registry. Vendor results also support the single-device inference.
 
-The database is embedded, never fetched at runtime. This tool is meant to run on
-client networks, so it must not reach the network to answer a question about a
-client's own hardware. Refresh it when you like:
+The app does not download the database at runtime. To update the embedded copy,
+run:
 
 ```bash
 ./tools/update-oui.sh
 ```
 
-That pulls the MA-L, MA-M and MA-S registries from `standards-oui.ieee.org`,
-sanity-checks them, and regenerates `Resources/OUI.txt`; rebuild to embed. The
-current copy holds 53,189 blocks. Lookups take the longest matching prefix, so a
-company holding a 36-bit assignment inside another organisation's block is named
-correctly rather than being attributed to the block holder.
+The script downloads the MA-L, MA-M, and MA-S registries from IEEE. It validates
+the files and rebuilds `Resources/OUI.txt`. The current file contains 53,183
+blocks. Vendor lookup uses the longest matching prefix.
 
-Randomised addresses are never given a vendor. Where the second bit of the first
-octet is set, the address was assigned by software rather than burned in, and
-the map says so instead of naming a manufacturer that would be meaningless.
+The app does not assign a vendor to a randomized address. It reports that the
+address was assigned by software.
 
-"Other IPv4 devices" comes from this Mac's own ARP cache, restricted to the
-active Wi-Fi interface and local subnet so Ethernet, VPN and bridge entries do
-not get mixed in. It is a bounded recent cache rather than an inventory; quiet
-or IPv6-only hosts may be absent. Reading it is passive — no address is probed
-and the subnet is never swept.
+"Other IPv4 devices" comes from the Mac's ARP cache. The app limits results to
+the active Wi-Fi interface and local subnet. The list is not a network inventory.
+It can omit quiet or IPv6-only hosts. The app does not probe these addresses.
 
 ## Walking a site
 
-The live graph answers "how is Wi-Fi right now". A walkthrough answers "how is
-Wi-Fi across this building, and here's the evidence".
+The live chart shows current conditions. A walkthrough records conditions across
+a site.
 
-Start a recording from the **Walkthroughs** tab and every reading is kept for the
-whole walk rather than the rolling hour the live view holds. Then, as you reach
-each room, press **⌘M** and name it.
+Start a recording from the **Walkthroughs** tab. Press **Command-M** and enter a
+name when you reach each room.
 
-Waypoints are what make the result readable. Without them a walkthrough is an
-unlabelled squiggle you reconstruct from memory; with them the report reads back
-per place — *Reception −42 on the reception AP, east stairwell −78, roamed
-twice*. The timestamp is captured the instant you press ⌘M rather than when you
-finish typing, so the label lands on the reading that describes where you
-actually were. Labels you've already used are offered for one-click reuse.
+Each room marker creates a waypoint. The app records its timestamp when you
+press Command-M, before you enter the label. Reports group later readings by
+waypoint. The app also offers recent labels for reuse.
 
-Turn on the **low-signal alert** and the app sounds once when signal drops
-through your chosen threshold, so you can watch ceilings and floor plans instead
-of the screen. It re-arms only after the signal recovers by a few dB, so a
-reading sitting on the line won't chirp continuously.
+The optional low-signal alert sounds when signal drops below the selected
+threshold. It resets after the signal recovers by several dB.
 
-Finished walkthroughs are saved to disk and can be reopened later. **Export
-Report** produces a single self-contained HTML file — chart, per-room table, AP
-inventory, and a statement of method — with no external dependencies, so it
-opens anywhere and prints to PDF from any browser. **Export CSV** attributes
-every reading to the room you were in when it was taken.
+The app saves completed walkthroughs on the Mac. **Export Report** creates one
+self-contained HTML file. It includes a chart, room table, AP list, and method.
+**Export CSV** assigns each reading to its waypoint.
 
-Gaps in sampling — the Mac slept, or you paused — are shaded on the graph and
-break the trace rather than being drawn across, which would assert data that was
-never measured.
+The chart shades gaps caused by sleep or a paused session. It does not draw a
+line across missing readings.
 
 ## Safe to run onsite
 
-The app is passive by default. It reads the state of the link this Mac has
-already joined, from the OS, plus the IP settings this Mac was assigned. It does
-not capture or inspect traffic, probe or scan other hosts, touch credentials, or
-send anything off the machine — no telemetry, no cloud, no accounts.
+The app reads the current Wi-Fi link and assigned IP settings. It does not
+capture traffic, probe other hosts, access credentials, or send telemetry.
 
-Two features transmit, both off until you turn them on and both labelled where
-they appear:
+Two optional features transmit network traffic:
 
-- **Scan Now** sends probe requests — the same frames as joining a network.
-- **Gateway ping** sends one ICMP echo per second to your own default router,
-  and to nothing else.
+- **Scan Now** sends standard Wi-Fi probe requests.
+- **Gateway ping** sends one ICMP echo per second to the default router.
 
-The Diagnostics tab states all of this in the app, so you can show it to whoever
-asks what you're running.
+Both features are off by default. The Diagnostics tab describes their activity.
 
 ## The Location Services requirement
 
-macOS classifies Wi-Fi network names as location data. Without Location Services
-the system withholds the **SSID**, the **BSSID** and the **country code** from
-every app, including this one. Everything else — signal, noise, SNR, channel,
-band, width, PHY mode, transmit rate, and all IP details — reads normally.
+macOS classifies Wi-Fi network names as location data. Without Location Services,
+the system hides the **SSID**, **BSSID**, and **country code**. Signal, noise,
+SNR, channel, band, width, PHY mode, rate, and IP details remain available.
 
-Grant it from the banner on the Live Monitor, or in System Settings ▸ Privacy &
-Security ▸ Location Services. The app waits for you to use that banner instead
-of showing a context-free permission prompt at launch.
+Grant access from the Live Monitor banner or from System Settings. The app does
+not show the permission request at launch.
 
-If the app reports that the request was refused *without a prompt appearing*,
-Location Services is either off for the whole Mac or blocked by a policy — Screen
-Time's Content & Privacy restrictions is the usual culprit. Check both:
+If macOS refuses access without a prompt, check these settings:
 
 - System Settings ▸ Privacy & Security ▸ Location Services
 - System Settings ▸ Screen Time ▸ Content & Privacy ▸ Location Services
 
-Without a BSSID the app falls back to identifying APs by a radio fingerprint of
-SSID, channel, band and security. That catches most roams, but two APs sharing a
-channel look identical to it — so anywhere a fingerprint is in use the UI marks
-it `FINGERPRINT` rather than quietly pretending it is certain.
+Without a BSSID, the app uses SSID, channel, band, and security as an AP
+fingerprint. Two APs can share this fingerprint. The interface marks these
+results as `FINGERPRINT`.
 
 ## Building
 
@@ -212,10 +166,8 @@ Run the tests with:
 ./run-tests.sh
 ```
 
-They cover the arithmetic and topology claims that end up in front of a client:
-quality thresholds, missing noise, access-point identity, waypoint attribution,
-export escaping, no-permission paths, same-chassis confidence, subnet scoping,
-stable map identities, and explicit grouping of large result sets.
+The tests cover signal calculations, AP identity, waypoints, export escaping,
+permission states, subnet limits, topology, and large result sets.
 
 
 ## Keyboard shortcuts
@@ -228,7 +180,7 @@ stable map identities, and explicit grouping of large result sets.
 
 ## Notes
 
-- Sampling runs at 1 s by default; 0.5–5 s is selectable in Diagnostics.
+- Sampling runs at 1 s by default. You can select 0.5–5 s in Diagnostics.
 - History is held in memory as a rolling one-hour window at every sampling rate,
   and starts fresh each launch.
   Export to CSV before quitting if you need to keep a walkthrough.

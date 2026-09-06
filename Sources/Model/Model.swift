@@ -167,8 +167,7 @@ struct WiFiSample: Identifiable, Codable {
     var interfaceName: String
     var hardwareAddress: String?
 
-    /// `id` is view identity only and is regenerated on load, so it is left out
-    /// of the encoding — at one sample per second it would be pure overhead.
+    /// `id` is view identity only. The decoder creates a new value on load.
     private enum CodingKeys: String, CodingKey {
         case time, ssid, bssid, rssi, noise, txRate, txPower, channel
         case channelWidthRaw, bandRaw, phyRaw, securityRaw, countryCode

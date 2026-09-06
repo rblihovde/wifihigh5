@@ -503,18 +503,12 @@ enum TopologyBuilder {
 
         // MARK: Other devices already known to this Mac
 
-        let neighbours: [ARPEntry] = {
-            guard let localAddress = ip.ipv4, let mask = ip.subnetMask else { return [] }
-            var byAddress: [String: ARPEntry] = [:]
-            for entry in interfaceARP where
-                entry.isUnicast && entry.ip != gatewayIP && entry.ip != localAddress &&
-                ARPTable.isHostOnSubnet(entry.ip, localAddress: localAddress, mask: mask) {
-                byAddress[entry.ip] = entry
-            }
-            return byAddress.values.sorted {
-                $0.ip.localizedStandardCompare($1.ip) == .orderedAscending
-            }
-        }()
+        let neighbours = ARPTable.devicesOnActiveSubnet(
+            interfaceARP,
+            interface: activeInterface,
+            localAddress: ip.ipv4,
+            mask: ip.subnetMask
+        ).filter { $0.ip != gatewayIP }
         if !neighbours.isEmpty {
             let shown = min(neighbours.count, 14)
             var facts: [Fact] = [

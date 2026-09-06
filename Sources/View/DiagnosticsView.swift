@@ -122,7 +122,7 @@ struct DiagnosticsView: View {
                 group("It reads", [
                     "The state of the link this Mac has already joined, from the OS.",
                     "IP, DNS, DHCP and gateway settings this Mac was assigned.",
-                    "Nothing else on the network."
+                    "Existing ARP cache entries for the passive Observed Devices view."
                 ], .green, "checkmark")
 
                 group("It does not", [

@@ -3,6 +3,7 @@ import SwiftUI
 enum Pane: String, CaseIterable, Identifiable {
     case live = "Live Monitor"
     case networkMap = "Network Map"
+    case observedDevices = "Observed Devices"
     case accessPoints = "Access Points"
     case roamLog = "Connection Changes"
     case surveys = "Walkthroughs"
@@ -15,6 +16,7 @@ enum Pane: String, CaseIterable, Identifiable {
         switch self {
         case .live:         return "waveform.path.ecg"
         case .networkMap:   return "point.topleft.down.to.point.bottomright.curvepath"
+        case .observedDevices: return "desktopcomputer.and.macbook"
         case .accessPoints: return "wifi.router"
         case .roamLog:      return "arrow.left.arrow.right"
         case .surveys:      return "figure.walk"
@@ -54,6 +56,7 @@ struct RootView: View {
                 switch pane.wrappedValue {
                 case .live:         LiveView()
                 case .networkMap:   NetworkMapView()
+                case .observedDevices: ObservedDevicesView()
                 case .accessPoints: AccessPointsView()
                 case .roamLog:      RoamLogView()
                 case .surveys:      SurveysView()

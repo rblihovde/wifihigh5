@@ -14,7 +14,8 @@ Everything the app shows is read from the Mac it is running on:
 - The assigned IP address, subnet, router, DNS servers and DHCP lease.
 - The kernel's existing ARP cache, which lists hosts this Mac has already
   exchanged traffic with in the normal course of being connected. Nothing is
-  scanned or probed to produce it.
+  scanned or probed to produce it. The passive Observed Devices view displays
+  these existing entries and does not store them.
 
 ## What the app stores
 

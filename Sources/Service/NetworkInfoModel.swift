@@ -5,11 +5,15 @@ import Combine
 @MainActor
 final class NetworkInfoModel: ObservableObject {
     @Published private(set) var config = IPConfig()
+    @Published private(set) var arpEntries: [ARPEntry] = []
     @Published private(set) var lastRefresh: Date?
+    @Published private(set) var lastARPRefresh: Date?
+    @Published private(set) var isRefreshingARP = false
 
     private var timer: Timer?
     private var interfaceName = "en0"
     private var refreshGeneration: UInt = 0
+    private var arpRefreshGeneration: UInt = 0
 
     init() { refresh() }
 
@@ -19,7 +23,11 @@ final class NetworkInfoModel: ObservableObject {
         // Do not display or ping the previous adapter's gateway while the new
         // interface read is in flight.
         config = IPConfig()
+        arpEntries = []
         lastRefresh = nil
+        lastARPRefresh = nil
+        arpRefreshGeneration &+= 1
+        isRefreshingARP = false
         refresh()
     }
 
@@ -43,6 +51,23 @@ final class NetworkInfoModel: ObservableObject {
                       self.interfaceName == name else { return }
                 self.config = cfg
                 self.lastRefresh = Date()
+            }
+        }
+    }
+
+    /// Reads the passive neighbor cache only when a view that displays it asks.
+    func refreshARP() {
+        guard !isRefreshingARP else { return }
+        arpRefreshGeneration &+= 1
+        let generation = arpRefreshGeneration
+        isRefreshingARP = true
+        DispatchQueue.global(qos: .utility).async {
+            let entries = ARPTable.read()
+            Task { @MainActor in
+                guard self.arpRefreshGeneration == generation else { return }
+                self.arpEntries = entries
+                self.lastARPRefresh = Date()
+                self.isRefreshingARP = false
             }
         }
     }

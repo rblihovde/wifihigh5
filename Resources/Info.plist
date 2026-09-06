@@ -17,7 +17,7 @@
     <key>CFBundleShortVersionString</key>
 	<string>1.1</string>
     <key>CFBundleVersion</key>
-    <string>4</string>
+    <string>5</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>LSMinimumSystemVersion</key>
@@ -34,5 +34,7 @@
     <string>macOS classifies Wi-Fi network names as location data. Access is used only to read the SSID and BSSID of the network this Mac is already connected to. No location is recorded, stored or transmitted.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>macOS classifies Wi-Fi network names as location data. Access is used only to read the SSID and BSSID of the network this Mac is already connected to. No location is recorded, stored or transmitted.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>WifiHigh5 accesses the local network only when you enable the gateway check. It sends echo requests to the current router to measure latency and packet loss. The Observed Devices view is passive and sends no traffic.</string>
 </dict>
 </plist>

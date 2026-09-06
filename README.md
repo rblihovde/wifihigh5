@@ -18,6 +18,10 @@ see the reading at that time. Optional overlays show noise and transmit rate.
 labels each item as measured, inferred, or unobserved. The map does not claim to
 be a complete network inventory. Pan, zoom, or select a node to inspect its data.
 
+**Observed Devices** lists IPv4 devices already present in the Mac's ARP cache.
+It is passive and sends no packets. Quiet, isolated, and IPv6-only devices may
+be absent.
+
 **Access Points** lists each AP that served the connection. Search the list or
 add a nickname, site, colour, and notes.
 
@@ -91,9 +95,10 @@ blocks. Vendor lookup uses the longest matching prefix.
 The app does not assign a vendor to a randomized address. It reports that the
 address was assigned by software.
 
-"Other IPv4 devices" comes from the Mac's ARP cache. The app limits results to
-the active Wi-Fi interface and local subnet. The list is not a network inventory.
-It can omit quiet or IPv6-only hosts. The app does not probe these addresses.
+"Observed Devices" comes from the Mac's ARP cache. The app limits results to the
+active Wi-Fi interface and local subnet. The list is not a network inventory.
+It can omit quiet, isolated, or IPv6-only hosts. The app does not probe these
+addresses.
 
 ## Walking a site
 

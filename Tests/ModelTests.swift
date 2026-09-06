@@ -257,6 +257,7 @@ private func testTopology(databaseURL: URL) {
         router,
         ARPEntry(ip: "192.168.10.30", mac: "00:00:5e:00:00:01", interfaceName: "en0"),
         ARPEntry(ip: "192.168.10.31", mac: "00:00:5e:00:00:02", interfaceName: "en1"),
+        ARPEntry(ip: "192.168.10.32", mac: "00:00:5e:00:00:04", interfaceName: nil),
         ARPEntry(ip: "10.0.0.5", mac: "00:00:5e:00:00:03", interfaceName: "en0"),
         ARPEntry(ip: "192.168.10.20", mac: "11:22:33:44:55:66", interfaceName: "en0"),
         ARPEntry(ip: "192.168.10.255", mac: "ff:ff:ff:ff:ff:ff", interfaceName: "en0")
@@ -267,6 +268,18 @@ private func testTopology(databaseURL: URL) {
         registry: registry, pinger: pinger, vendors: vendors)
     expectEqual("device cache is limited to this interface and subnet",
                 scopedMap.node("neighbours")?.facts.first { $0.label == "Cached" }?.value, "1")
+
+    let observed = ARPTable.devicesOnActiveSubnet(
+        neighbours,
+        interface: "en0",
+        localAddress: config.ipv4,
+        mask: config.subnetMask
+    )
+    expectEqual("passive device list stays on the active Wi-Fi subnet",
+                observed.map(\.ip), ["192.168.10.1", "192.168.10.30"])
+    expect("passive device list needs subnet data",
+           ARPTable.devicesOnActiveSubnet(neighbours, interface: "en0",
+                                          localAddress: nil, mask: nil).isEmpty)
 
     let scan = (1...6).map { scannedAP($0, rssi: -40 - $0) }
     let crowdedMap = TopologyBuilder.build(

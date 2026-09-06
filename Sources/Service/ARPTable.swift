@@ -112,6 +112,29 @@ enum ARPTable {
         #endif
     }
 
+    /// Returns passive ARP entries for the active interface and IPv4 subnet.
+    /// No network operation occurs here; this only filters entries already in
+    /// the kernel cache.
+    static func devicesOnActiveSubnet(_ entries: [ARPEntry],
+                                      interface: String?,
+                                      localAddress: String?,
+                                      mask: String?) -> [ARPEntry] {
+        guard let interface, let localAddress, let mask else { return [] }
+        var byAddress: [String: ARPEntry] = [:]
+        for entry in entries {
+            guard entry.isUnicast,
+                  entry.ip != localAddress,
+                  entry.interfaceName == interface,
+                  isHostOnSubnet(entry.ip, localAddress: localAddress, mask: mask) else {
+                continue
+            }
+            byAddress[entry.ip] = entry
+        }
+        return byAddress.values.sorted {
+            (ipv4Value($0.ip) ?? UInt32.max) < (ipv4Value($1.ip) ?? UInt32.max)
+        }
+    }
+
     /// True when two MACs sit in the same vendor prefix and within a few
     /// addresses of each other. Manufacturers hand consecutive addresses to the
     /// interfaces of one chassis, so this is strong evidence that a router and

@@ -17,9 +17,6 @@ struct NetworkMapView: View {
     @State private var committedZoom: CGFloat = 1.0
     @State private var offset = CGSize.zero
     @State private var committedOffset = CGSize.zero
-    @State private var arp: [ARPEntry] = []
-    @State private var arpObservedAt: Date?
-    @State private var arpReadInFlight = false
     @State private var selectedNodeID: String?
     @State private var showNotes = false
     @State private var lastViewportSize = CGSize(width: 900, height: 600)
@@ -37,9 +34,9 @@ struct NetworkMapView: View {
     private func rebuildMap() {
         map = TopologyBuilder.build(
             sample: monitor.current, status: monitor.status,
-            ip: netInfo.config, arp: arp, scan: scanner.results,
+            ip: netInfo.config, arp: netInfo.arpEntries, scan: scanner.results,
             ipObservedAt: netInfo.lastRefresh,
-            arpObservedAt: arpObservedAt,
+            arpObservedAt: netInfo.lastARPRefresh,
             scanObservedAt: scanner.lastScan,
             registry: registry, pinger: pinger, vendors: vendors)
     }
@@ -147,7 +144,7 @@ struct NetworkMapView: View {
         }
         .background(Color(nsColor: .textBackgroundColor))
         .onAppear {
-            reloadARP()
+            netInfo.refreshARP()
             rebuildMap()
         }
         // The sample identity changes once a second while monitoring, which is
@@ -155,24 +152,11 @@ struct NetworkMapView: View {
         // case where sampling is paused.
         .onChange(of: monitor.current?.id) { _, _ in rebuildMap() }
         .onChange(of: monitor.status) { _, _ in rebuildMap() }
-        .onChange(of: arp) { _, _ in rebuildMap() }
+        .onChange(of: netInfo.arpEntries) { _, _ in rebuildMap() }
         .onChange(of: scanner.results.count) { _, _ in rebuildMap() }
         .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
-            reloadARP()
+            netInfo.refreshARP()
             rebuildMap()
-        }
-    }
-
-    private func reloadARP() {
-        guard !arpReadInFlight else { return }
-        arpReadInFlight = true
-        DispatchQueue.global(qos: .utility).async {
-            let entries = ARPTable.read()
-            Task { @MainActor in
-                self.arp = entries
-                self.arpObservedAt = Date()
-                self.arpReadInFlight = false
-            }
         }
     }
 

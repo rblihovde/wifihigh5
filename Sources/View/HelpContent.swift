@@ -285,12 +285,12 @@ enum HelpContent {
             ]
         ),
         HelpTopic(
-            term: "Other devices",
+            term: "Observed devices",
             category: .networkMap,
             short: "Hosts already in this Mac's ARP cache. Nothing was scanned.",
             body: [
-                "These are IPv4 neighbors from the Mac's ARP cache. The app limits the list to the active Wi-Fi interface and subnet. It does not probe these addresses.",
-                "This is a recent cache, not a device inventory. Quiet hosts and IPv6-only neighbours may be absent. The node shows a bounded address list and any omitted count. A randomised MAC is flagged because it will not match a wired inventory."
+                "These are IPv4 neighbors from the Mac's ARP cache. The app limits the list to the active Wi-Fi interface and subnet. Refresh Cache reads the cache again. It does not probe these addresses.",
+                "This is a recent cache, not a device inventory. Quiet, isolated, and IPv6-only neighbours may be absent. A randomised MAC is flagged because it will not identify a hardware manufacturer."
             ]
         ),
         HelpTopic(
@@ -461,6 +461,8 @@ enum HelpIndex {
         "vendor database": "Hardware vendors",
         "vendor prefix":   "Hardware vendors",
         "access points":   "SSID and BSSID",
+        "observed devices": "Observed devices",
+        "other devices":   "Observed devices",
         "saved aps":       "Where your data is stored"
     ]
 

@@ -99,7 +99,7 @@ private func testAPIdentity() {
 // MARK: Formatting
 
 private func testFormatting() {
-    expectEqual("short mac", Fmt.shortMAC("00:00:5e:00:53:a1"), "…:8e:fa")
+    expectEqual("short mac", Fmt.shortMAC("00:00:5e:00:53:a1"), "…:53:a1")
     expectEqual("short mac passes through non-mac", Fmt.shortMAC("nope"), "nope")
     expectEqual("rate in mbps", Fmt.rate(866), "866 Mbps")
     expectEqual("rate in gbps", Fmt.rate(1200), "1.2 Gbps")
@@ -374,7 +374,7 @@ private func testVendorLookup(databaseURL: URL) {
     expect("database loaded", db.isReady)
     expect("database has a realistic number of blocks", db.recordCount > 40_000)
 
-    expectEqual("resolves the observed router", db.lookup("00:00:0c:11:22:33"), .known("Cisco Systems, Inc"))
+    expectEqual("resolves a registered vendor", db.lookup("00:00:0c:11:22:33"), .known("Cisco Systems, Inc"))
     expectEqual("resolves an Apple address", db.lookup("00:1b:63:11:22:33"), .known("Apple, Inc"))
     expectEqual("case and separators do not matter",
                 db.lookup("00-1B-63-11-22-33"), .known("Apple, Inc"))

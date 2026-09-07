@@ -9,12 +9,15 @@ struct ObservedDevicesView: View {
     @EnvironmentObject private var vendors: VendorDatabase
     @EnvironmentObject private var devices: DeviceRegistry
     @EnvironmentObject private var presence: DevicePresence
+    @EnvironmentObject private var discovery: DeviceDiscovery
 
     @State private var searchText = ""
     @State private var sort: DeviceSort = .address
     @State private var showDeparted = true
     @State private var editingMAC: String?
     @State private var fileMessage: String?
+    @State private var confirmingBonjour = false
+    @State private var confirmingDNS = false
 
     private var activeInterface: String? {
         monitor.current?.interfaceName ?? netInfo.config.primaryInterface
@@ -45,7 +48,9 @@ struct ObservedDevicesView: View {
                 vendor: vendors.lookup(mac),
                 sighting: nil,
                 isLocallyAdministered: ARPEntry(ip: ip, mac: mac).isLocallyAdministered,
-                isPresent: true
+                isPresent: true,
+                guess: nil,
+                finding: discovery.finding(forIP: ip)
             ))
         }
 
@@ -60,7 +65,11 @@ struct ObservedDevicesView: View {
                 vendor: vendors.lookup(entry.mac),
                 sighting: presence.sighting(forMAC: entry.mac),
                 isLocallyAdministered: entry.isLocallyAdministered,
-                isPresent: true
+                isPresent: true,
+                guess: entry.isLocallyAdministered
+                    ? nil
+                    : DeviceClassifier.guess(vendor: vendors.lookup(entry.mac).displayName),
+                finding: discovery.finding(forIP: entry.ip)
             ))
         }
 
@@ -77,7 +86,9 @@ struct ObservedDevicesView: View {
                     sighting: gone.sighting,
                     isLocallyAdministered: ARPEntry(ip: gone.sighting.lastIP,
                                                     mac: gone.mac).isLocallyAdministered,
-                    isPresent: false
+                    isPresent: false,
+                    guess: DeviceClassifier.guess(vendor: vendors.lookup(gone.mac).displayName),
+                    finding: discovery.finding(forIP: gone.sighting.lastIP)
                 ))
             }
         }
@@ -136,6 +147,9 @@ struct ObservedDevicesView: View {
             if let fileMessage {
                 InlineNotice(text: fileMessage) { self.fileMessage = nil }
             }
+            if let discoveryMessage = discovery.message {
+                InlineNotice(text: discoveryMessage) { discovery.clearMessage() }
+            }
 
             let all = rows
             if all.isEmpty {
@@ -167,13 +181,32 @@ struct ObservedDevicesView: View {
             }
         }
         .background(Color(nsColor: .underPageBackgroundColor))
+        .alert("Ask the devices on this network to identify themselves?",
+               isPresented: $confirmingBonjour) {
+            Button("Cancel", role: .cancel) { }
+            Button("Send Queries") { discovery.browse() }
+        } message: {
+            Text(Warning.bonjour)
+        }
+        .alert("Ask this network's DNS server to name these addresses?",
+               isPresented: $confirmingDNS) {
+            Button("Cancel", role: .cancel) { }
+            Button("Look Up Names") {
+                discovery.resolveNames(for: rows.filter(\.isPresent).map(\.ip))
+            }
+        } message: {
+            Text(Warning.reverseDNS)
+        }
         .onAppear { netInfo.refreshARP() }
         // These mutate observed state, so they must not run inside the view
         // update that is reading it. Hopping to the next main-actor turn keeps
         // the publish out of the current render pass; doing it inline corrupts
         // the layout of the whole split view, not just this pane.
-        .onChange(of: netInfo.arpEntries) { _, _ in
-            let observed = cached
+        // Watching the filtered list rather than the raw cache matters: the
+        // filter needs the IP settings, which arrive after the entries do, so
+        // keying off the raw cache misses the moment the list first has
+        // content and nothing is ever recorded as present.
+        .onChange(of: cached) { _, observed in
             Task { @MainActor in presence.note(observed) }
         }
         .onChange(of: activeInterface) { _, _ in
@@ -222,6 +255,22 @@ struct ObservedDevicesView: View {
             Spacer()
 
             Menu {
+                Button("Ask Devices to Identify Themselves…") { confirmingBonjour = true }
+                    .disabled(discovery.isBrowsing)
+                Button("Look Up Names in DNS…") { confirmingDNS = true }
+                    .disabled(discovery.isResolvingNames)
+                Divider()
+                Button("Discard Discovered Names", role: .destructive) { discovery.clear() }
+                    .disabled(!discovery.hasFindings)
+            } label: {
+                Label("Identify", systemImage: "questionmark.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .controlSize(.small)
+            .frame(width: 92)
+            .help("Sends queries to devices. Each option explains what it does before anything is sent.")
+
+            Menu {
                 Button("Export Device List as CSV…", action: exportCSV)
                 Divider()
                 Button("Export Labels…", action: exportLabels)
@@ -244,8 +293,13 @@ struct ObservedDevicesView: View {
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
             }
-            Pill(text: "PASSIVE", tint: .green)
-                .help("This view reads the existing ARP cache and sends no packets.")
+            if discovery.isBrowsing || discovery.isResolvingNames {
+                Pill(text: "SENDING", tint: .orange, filled: true)
+                    .help("A discovery you approved is running. It stops on its own.")
+            } else {
+                Pill(text: "PASSIVE", tint: .green)
+                    .help("This view reads the existing neighbour cache and sends nothing.")
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -259,7 +313,7 @@ struct ObservedDevicesView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Passive device view")
                     .font(.system(size: 11.5, weight: .semibold))
-                Text("Reads the neighbour cache macOS already keeps for traffic this Mac has exchanged. It does not probe devices, scan ports, sweep addresses, or send any packet. Quiet, isolated and IPv6-only devices will not appear. Names you assign are stored on this Mac only, and only for devices you label.")
+                Text("Reads the neighbour cache macOS already keeps for traffic this Mac has exchanged. It does not probe devices, scan ports, sweep addresses, or send any packet. Quiet, isolated and IPv6-only devices will not appear. Identify can ask devices for their names, and tells you exactly what it sends before it sends anything. Names you assign are stored on this Mac only.")
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
                     // Wraps to fit, but never grows without bound. Without a
@@ -292,6 +346,10 @@ struct ObservedDevicesView: View {
             SummaryChip(value: "\(priv)", label: "private addresses",
                         tint: priv > 0 ? .orange : .secondary)
             SummaryChip(value: "\(named)", label: "named by you", tint: .green)
+            if discovery.hasFindings {
+                SummaryChip(value: "\(present.filter(\.wasDiscovered).count)",
+                            label: "identified by asking", tint: .blue)
+            }
             Spacer()
             Text("Watching for \(Fmt.duration(Date().timeIntervalSince(presence.watchingSince)))")
                 .font(.system(size: 10))
@@ -333,6 +391,9 @@ struct ObservedDevicesView: View {
                         Text(device.displayName)
                             .font(.system(size: 11.5, weight: .semibold))
                             .lineLimit(1)
+                        if device.wasDiscovered {
+                            Pill(text: "ASKED", tint: .blue)
+                        }
                         if device.isNew { Pill(text: "NEW", tint: .orange) }
                         if !device.isPresent { Pill(text: "GONE", tint: .secondary) }
                         if device.isLocallyAdministered { Pill(text: "PRIVATE", tint: .orange) }
@@ -407,15 +468,25 @@ struct ObservedDevicesView: View {
 
     private func subtitle(_ device: ObservedDevice) -> String {
         var parts: [String] = []
-        if device.nickname != nil, device.role != .device {
+
+        // The role, unless the row is already named after it.
+        if device.role != .device, device.displayName != device.role.label {
             parts.append(device.role.label)
         }
-        if device.category != .unlabelled, device.nickname != nil || device.role == .device {
+        if let model = device.finding?.model { parts.append(model) }
+
+        // What the user filed it under wins over what the maker suggests.
+        if device.category != .unlabelled {
             parts.append(device.category.label)
+        } else if let guess = device.guess {
+            parts.append(guess.summary)
         }
-        if let notes = device.record?.notes, !notes.isEmpty {
-            parts.append(notes)
+
+        if let services = device.finding?.services, !services.isEmpty {
+            parts.append(services.sorted().joined(separator: ", "))
         }
+        if let notes = device.record?.notes, !notes.isEmpty { parts.append(notes) }
+
         if parts.isEmpty {
             if let basis = device.role.basis { return basis }
             return device.isLocallyAdministered
@@ -618,4 +689,38 @@ private struct DeviceLabelEditor: View {
         devices.setNotes(notes, forMAC: device.mac, currentIP: device.ip)
         devices.setCategory(category, forMAC: device.mac, currentIP: device.ip)
     }
+}
+
+/// The text shown before anything is transmitted.
+///
+/// Each one says what is sent, what comes back, where it will show up
+/// afterwards, and what the feature is for. A person about to run this on a
+/// client's network should be able to decide from this alone.
+enum Warning {
+
+    static let bonjour = """
+        This sends Bonjour queries to every device on this subnet and asks any that answer to describe itself. Until now this tab has only read a cache your Mac already had.
+
+        WHAT YOU GET
+        The name a device publishes for itself, what it offers — printing, AirPlay, file sharing, screen sharing — and sometimes a model.
+
+        WHAT IT COSTS
+        These queries are visible to anything watching the network. Ordinary Macs, iPhones and printers send them constantly, so one is unremarkable; a burst from a single machine can still be logged as network discovery, and some monitoring treats discovery as reconnaissance.
+
+        WHEN TO USE IT
+        On a network you have been asked to work on, to put names to devices you are responsible for. Not to survey a network that is not yours.
+        """
+
+    static let reverseDNS = """
+        This sends one reverse lookup per address to the name servers this network gave your Mac.
+
+        WHAT YOU GET
+        Hostnames, on a network that keeps DNS records for its own clients. Home and small-office networks usually keep none and will return nothing at all.
+
+        WHAT IT COSTS
+        The DNS server logs every lookup, recording this Mac as the source alongside each internal address you asked about. DNS logs are reviewed far more often than Wi-Fi traffic, and a run of reverse lookups across one subnet reads plainly as someone enumerating the network.
+
+        WHEN TO USE IT
+        On a managed network where you have been asked to document what is connected.
+        """
 }

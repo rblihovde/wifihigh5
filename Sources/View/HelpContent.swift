@@ -308,6 +308,41 @@ enum HelpContent {
             ]
         ),
         HelpTopic(
+            term: "Suggested device type",
+            category: .networkMap,
+            short: "A hedge based on who made the hardware. Never a measurement.",
+            body: [
+                "The IEEE registry says which company owns a hardware address, and for many companies that narrows what the device is. A firm that only builds printers is unlikely to be on the network as anything else, so the row says \u{201C}Likely a printer\u{201D}.",
+                "Nothing is measured to produce this, and no device is contacted. It is an inference from the manufacturer alone, which is why it is always worded as a likelihood and always sits below the name rather than replacing it.",
+                "Companies that build many kinds of product, or that supply the wireless module inside someone else\u{2019}s product, get no type at all. Apple builds phones, tablets, computers, watches and speakers, so the address cannot say which, and the app declines to guess rather than guessing badly.",
+                "A randomised address is never typed, because the prefix belongs to no manufacturer.",
+                "Your own label always wins. Once you set a type on a device, the suggestion is gone."
+            ]
+        ),
+        HelpTopic(
+            term: "Asking devices to identify themselves",
+            category: .networkMap,
+            short: "Optional Bonjour queries that collect the names devices publish.",
+            body: [
+                "Everything else in this tab reads a cache your Mac already had. This is different: it transmits. It sends Bonjour queries on the local subnet and asks anything that answers to describe itself, which is how the app learns names like \u{201C}Reception LaserJet\u{201D} and services like printing, AirPlay or file sharing.",
+                "It is off until you run it, it asks first and says what it will send, and it stops on its own after a few seconds. It is never triggered by opening the tab.",
+                "What it costs: the queries are visible to anything watching the network. Ordinary Macs, phones and printers send them constantly, so one is unremarkable, but a burst from a single machine can be logged as network discovery, and some monitoring treats discovery as reconnaissance. Use it on a network you have been asked to work on.",
+                "Many networks isolate clients from one another, which blocks this entirely. Getting nothing back is a normal result and says nothing about the devices.",
+                "Rows carrying anything obtained this way are marked Asked, and the CSV export records which rows those were."
+            ]
+        ),
+        HelpTopic(
+            term: "Looking up names in DNS",
+            category: .networkMap,
+            short: "Optional reverse lookups. The most visible thing the app can do.",
+            body: [
+                "This sends one reverse lookup for each address to the name servers this network gave your Mac, and returns the hostnames the network holds for its own clients.",
+                "Home and small-office networks usually keep no such records and will return nothing. Managed networks often do, which is where this earns its place.",
+                "What it costs: the DNS server logs every lookup, recording your Mac as the source alongside each internal address you asked about. DNS logs are reviewed far more often than Wi-Fi traffic, and a run of reverse lookups across one subnet reads plainly as someone enumerating the network. This is the most visible thing this app can do, and it asks before doing it.",
+                "Use it on a managed network where you have been asked to document what is connected."
+            ]
+        ),
+        HelpTopic(
             term: "IP address",
             category: .network,
             short: "The address a device holds on this subnet, issued by DHCP or set by hand.",
@@ -505,6 +540,14 @@ enum HelpIndex {
         "departed":        "Observed devices",
         "seen":            "Observed devices",
         "naming devices":  "Naming devices",
+        "suggested type":  "Suggested device type",
+        "likely a printer": "Suggested device type",
+        "identify":        "Asking devices to identify themselves",
+        "bonjour":         "Asking devices to identify themselves",
+        "asked":           "Asking devices to identify themselves",
+        "advertised name": "Asking devices to identify themselves",
+        "reverse dns":     "Looking up names in DNS",
+        "dns name":        "Looking up names in DNS",
         "device name":     "Naming devices",
         "other devices":   "Observed devices",
         "saved aps":       "Where your data is stored"

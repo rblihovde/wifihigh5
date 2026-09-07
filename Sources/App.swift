@@ -31,6 +31,7 @@ struct WifiHigh5App: App {
     @StateObject private var vendors = VendorDatabase()
     @StateObject private var devices = DeviceRegistry()
     @StateObject private var presence = DevicePresence()
+    @StateObject private var discovery = DeviceDiscovery()
     @State private var confirmClearSession = false
 
     init() {
@@ -53,6 +54,7 @@ struct WifiHigh5App: App {
                 .environmentObject(vendors)
                 .environmentObject(devices)
                 .environmentObject(presence)
+                .environmentObject(discovery)
                 .frame(minWidth: 940, minHeight: 620)
                 .task {
                     appDelegate.onTerminate = {

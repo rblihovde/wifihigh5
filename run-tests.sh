@@ -19,7 +19,9 @@ swiftc \
     Sources/Model/Topology.swift \
     Sources/Model/DeviceRegistry.swift \
     Sources/Model/DeviceRole.swift \
+    Sources/Model/DeviceClassifier.swift \
     Sources/Model/ObservedDevice.swift \
+    Sources/Service/DeviceDiscovery.swift \
     Sources/Service/DevicePresence.swift \
     Sources/Service/ARPTable.swift \
     Sources/Service/ReportBuilder.swift \

@@ -552,15 +552,99 @@ private func testDeviceCSV() {
     let lines = csv.split(separator: "\n", omittingEmptySubsequences: false)
 
     expect("the export says how the data was gathered",
-           csv.contains("No device was probed"))
+           csv.contains("Passive read of this Mac's neighbour cache"))
     expect("a comma in a name cannot break the columns",
            csv.contains("\"Reception, printer\""))
     expect("a quote in a note is escaped rather than ending the field",
            csv.contains("\"\"out of paper\"\""))
     expect("the manufacturer is carried through", csv.contains("Example Corp"))
     expect("the type the user chose is carried through", csv.contains("Printer"))
-    expectEqual("one comment block, one header and one device row",
-                lines.filter { !$0.isEmpty }.count, 6)
+    expect("the export states that nothing was scanned",
+           csv.contains("No address was scanned or swept"))
+    expect("the export states that nothing was asked of any device",
+           csv.contains("Discovery,None"))
+    expect("a suggested type is marked as inferred, not measured",
+           csv.contains("Inferred from the manufacturer only"))
+    expectEqual("six comment lines, one header and one device row",
+                lines.filter { !$0.isEmpty }.count, 8)
+}
+
+// MARK: Device type inference
+
+@MainActor
+private func testDeviceClassifier() {
+    // A maker of one kind of device narrows it usefully.
+    expectEqual("a printer maker suggests a printer",
+                DeviceClassifier.guess(vendor: "Hewlett Packard")?.category, .printer)
+    expectEqual("that inference is offered as likely",
+                DeviceClassifier.guess(vendor: "Canon Inc")?.strength, .likely)
+    expectEqual("a camera maker suggests a camera",
+                DeviceClassifier.guess(vendor: "Axis Communications AB")?.category, .camera)
+    expectEqual("a wireless module maker suggests a small smart device",
+                DeviceClassifier.guess(vendor: "Espressif Inc")?.category, .iot)
+    expectEqual("an access point maker suggests network equipment",
+                DeviceClassifier.guess(vendor: "Ubiquiti Networks Inc")?.category, .accessPoint)
+    expectEqual("a provider gateway maker suggests a router",
+                DeviceClassifier.guess(vendor: "WNC Corporation")?.category, .router)
+
+    // Order matters: the enterprise arm builds switches, not printers, and the
+    // longer name must be tested before the shorter one it contains.
+    expectEqual("Hewlett Packard Enterprise is not read as a printer",
+                DeviceClassifier.guess(vendor: "Hewlett Packard Enterprise")?.category,
+                .networkSwitch)
+
+    // Makers of everything must not have a type invented for them.
+    expect("Apple is named but not typed",
+           DeviceClassifier.guess(vendor: "Apple, Inc")?.category == nil)
+    expectEqual("Apple is still described",
+                DeviceClassifier.guess(vendor: "Apple, Inc")?.summary, "An Apple device")
+    expectEqual("that is offered only as possible",
+                DeviceClassifier.guess(vendor: "Apple, Inc")?.strength, .possible)
+    expect("a radio supplier is named but not typed",
+           DeviceClassifier.guess(vendor: "AzureWave Technology Inc")?.category == nil)
+
+    // Silence is better than a guess with nothing behind it.
+    expect("an unrecognised maker yields nothing",
+           DeviceClassifier.guess(vendor: "Wuah, Inc") == nil)
+    expect("no manufacturer yields nothing",
+           DeviceClassifier.guess(vendor: nil) == nil)
+}
+
+// MARK: Discovery findings
+
+@MainActor
+private func testDiscoveryFindings() {
+    var finding = DeviceFinding()
+    expect("an empty finding is empty", finding.isEmpty)
+    expect("an empty finding offers no name", finding.bestName == nil)
+
+    finding.hostname = "printer.example.com"
+    expect("a DNS name alone is enough to be non-empty", !finding.isEmpty)
+    expectEqual("a DNS name is used when nothing was advertised",
+                finding.bestName, "printer.example.com")
+
+    finding.advertisedName = "Reception LaserJet"
+    expectEqual("a name the device published for itself wins over DNS",
+                finding.bestName, "Reception LaserJet")
+
+    // A row must show a discovered name over anything this Mac worked out,
+    // but never over a name the user chose.
+    let base = ObservedDevice(
+        mac: "aa:bb:cc:dd:ee:ff", ip: "192.168.1.40", role: .device,
+        record: nil, vendor: .known("Example Corp"), sighting: nil,
+        isLocallyAdministered: false, isPresent: true, guess: nil, finding: finding)
+    expectEqual("a discovered name names the row", base.displayName, "Reception LaserJet")
+    expect("the row declares that it was obtained by asking", base.wasDiscovered)
+
+    var named = base
+    named.record = DeviceRecord(macKey: "aa:bb:cc:dd:ee:ff", nickname: "Front desk printer")
+    expectEqual("the user's own name still wins", named.displayName, "Front desk printer")
+
+    var untouched = base
+    untouched.finding = nil
+    expect("a row nothing was asked of does not claim otherwise", !untouched.wasDiscovered)
+    expectEqual("and it falls back to what this Mac worked out",
+                untouched.displayName, "Observed device")
 }
 
 @main
@@ -580,6 +664,8 @@ struct TestRunner {
         testDevicePresence()
         testDeviceRegistry()
         testDeviceCSV()
+        testDeviceClassifier()
+        testDiscoveryFindings()
         if CommandLine.arguments.count > 1 {
             let databaseURL = URL(fileURLWithPath: CommandLine.arguments[1])
             testVendorLookup(databaseURL: databaseURL)

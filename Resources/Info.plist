@@ -35,6 +35,30 @@
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>macOS classifies Wi-Fi network names as location data. Access is used only to read the SSID and BSSID of the network this Mac is already connected to. No location is recorded, stored or transmitted.</string>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>WifiHigh5 accesses the local network only when you enable the gateway check. It sends echo requests to the current router to measure latency and packet loss. The Observed Devices view is passive and sends no traffic.</string>
+    <string>WifiHigh5 uses the local network only for features you switch on yourself: an optional echo to your own router to measure latency and packet loss, and an optional Identify request that asks devices on this network for the names they publish. Each one explains exactly what it sends before it sends anything. Everything else in the app reads only settings and caches this Mac already holds.</string>
+    <!-- macOS returns nothing from a Bonjour browse unless the service
+         types are declared here, so this list must stay in step with
+         the one in DeviceDiscovery.swift. -->
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_device-info._tcp</string>
+        <string>_workstation._tcp</string>
+        <string>_ipp._tcp</string>
+        <string>_ipps._tcp</string>
+        <string>_printer._tcp</string>
+        <string>_pdl-datastream._tcp</string>
+        <string>_scanner._tcp</string>
+        <string>_airplay._tcp</string>
+        <string>_raop._tcp</string>
+        <string>_googlecast._tcp</string>
+        <string>_hap._tcp</string>
+        <string>_smb._tcp</string>
+        <string>_afpovertcp._tcp</string>
+        <string>_ssh._tcp</string>
+        <string>_rfb._tcp</string>
+        <string>_http._tcp</string>
+        <string>_axis-video._tcp</string>
+        <string>_spotify-connect._tcp</string>
+    </array>
 </dict>
 </plist>

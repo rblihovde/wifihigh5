@@ -221,23 +221,37 @@ enum ReportBuilder {
     // MARK: Observed devices
 
     /// A device inventory for the client, containing exactly what the list
-    /// showed. Nothing is looked up or contacted to produce it.
+    /// showed. The header records how each part of it was obtained, so a reader
+    /// can tell what was watched from what was asked.
     static func deviceCSV(_ devices: [ObservedDevice], networkName: String?) -> String {
         let stamp = ISO8601DateFormatter()
+        let asked = devices.contains(where: \.wasDiscovered)
+
         var lines = ["# WifiHigh5 observed devices"]
         lines.append("# Network,\(escapeCSV(networkName ?? "Not available"))")
         lines.append("# Exported,\(stamp.string(from: Date()))")
-        lines.append("# Source,Passive read of this Mac's neighbour cache. No device was probed.")
-        lines.append("Name,Role,Type,IP Address,MAC Address,Address Type,Manufacturer,Status,First Seen,Last Seen,Notes")
+        lines.append("# Source,Passive read of this Mac's neighbour cache. No address was scanned or swept.")
+        lines.append(asked
+            ? "# Discovery,Some rows include names the devices published or DNS supplied, at the operator's request. Those rows are marked Asked."
+            : "# Discovery,None. Nothing was asked of any device.")
+        lines.append("# Suggested Type,Inferred from the manufacturer only, never measured.")
+        lines.append("Name,Role,Type,Suggested Type,IP Address,MAC Address,Address Type,Manufacturer,Advertised Name,Model,Services,DNS Name,Asked,Status,First Seen,Last Seen,Notes")
+
         for device in devices {
             lines.append([
                 escapeCSV(device.displayName),
                 escapeCSV(device.role.label),
                 escapeCSV(device.category == .unlabelled ? "" : device.category.label),
+                escapeCSV(device.category == .unlabelled ? (device.guess?.summary ?? "") : ""),
                 escapeCSV(device.ip),
                 escapeCSV(device.mac),
                 escapeCSV(device.isLocallyAdministered ? "Private or virtual" : "Hardware"),
                 escapeCSV(device.vendorText),
+                escapeCSV(device.finding?.advertisedName ?? ""),
+                escapeCSV(device.finding?.model ?? ""),
+                escapeCSV(device.finding.map { $0.services.sorted().joined(separator: "; ") } ?? ""),
+                escapeCSV(device.finding?.hostname ?? ""),
+                escapeCSV(device.wasDiscovered ? "Asked" : "No"),
                 escapeCSV(status(device)),
                 escapeCSV(device.sighting.map { stamp.string(from: $0.firstSeen) } ?? ""),
                 escapeCSV(device.sighting.map { stamp.string(from: $0.lastSeen) } ?? ""),

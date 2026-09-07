@@ -150,7 +150,13 @@ final class DeviceDiscovery: ObservableObject {
 /// are the services that say something useful about what a device is, and
 /// asking for a known handful is a smaller thing to do on someone else's
 /// network than enumerating everything it offers.
-private final class BonjourScan: NSObject, NetServiceBrowserDelegate, NetServiceDelegate {
+///
+/// Confined to the main runloop: it is created from the main actor, its
+/// browsers and services are scheduled on the main runloop and so call back on
+/// it, and the timeout is posted to the main queue. Nothing here is touched
+/// from another thread, which is what the Sendable claim below rests on.
+private final class BonjourScan: NSObject, NetServiceBrowserDelegate,
+                                 NetServiceDelegate, @unchecked Sendable {
 
     private static let types: [(type: String, label: String)] = [
         ("_device-info._tcp.",     "Device information"),

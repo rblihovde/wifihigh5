@@ -485,6 +485,15 @@ private func testDevicePresence() {
     presence.reset(now: base.addingTimeInterval(25))
     expectEqual("a network change clears the history", presence.sightings.count, 0)
     expectEqual("a network change clears the read count", presence.readCount, 0)
+
+    // Moving to another network takes what is already cached as the new
+    // baseline, rather than waiting for a change that may never come.
+    presence.rebaseline([a, b], now: base.addingTimeInterval(30))
+    expectEqual("a rebaseline records what is already there", presence.sightings.count, 2)
+    expectEqual("and counts as the first read", presence.readCount, 1)
+    expectEqual("so nothing is reported as having arrived", presence.arrivedCount, 0)
+    expect("devices are present after a rebaseline",
+           presence.sighting(forMAC: a.mac)?.isPresent == true)
 }
 
 // MARK: Device labels stay local and deliberate

@@ -222,8 +222,9 @@ enum TopologyBuilder {
                                         tint: .orange, confidence: .inferred,
                                         source: "Bundled IEEE assignment database"))
             }
-            routerFacts.append(Fact(label: "Vendor prefix", value: gatewayEntry!.oui, detail: .full))
-            if gatewayEntry!.isLocallyAdministered {
+            let entry = ARPEntry(ip: gatewayIP ?? "", mac: mac)
+            routerFacts.append(Fact(label: "Vendor prefix", value: entry.oui, detail: .full))
+            if entry.isLocallyAdministered {
                 routerFacts.append(Fact(label: "Address type", value: "Locally administered", detail: .full, tint: .orange))
             }
         } else {

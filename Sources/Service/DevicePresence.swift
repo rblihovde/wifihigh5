@@ -98,4 +98,16 @@ final class DevicePresence: ObservableObject {
         readCount = 0
         watchingSince = now
     }
+
+    /// Starts again against a different network, taking the devices already in
+    /// the cache as the new baseline.
+    ///
+    /// Resetting without immediately re-baselining leaves the history empty
+    /// until the cache next happens to change, and on a settled network that
+    /// can be never.
+    func rebaseline(_ entries: [ARPEntry], now: Date = Date()) {
+        reset(now: now)
+        guard !entries.isEmpty else { return }
+        note(entries, now: now)
+    }
 }

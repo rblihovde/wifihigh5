@@ -150,20 +150,19 @@ struct NetworkMapView: View {
         }
         .background(Color(nsColor: .textBackgroundColor))
         .onAppear {
-            netInfo.refreshARP()
+            netInfo.beginARPPolling()
             rebuildMap()
         }
+        .onDisappear { netInfo.endARPPolling() }
         // The sample identity changes once a second while monitoring, which is
-        // also what picks up nickname and vendor edits. The timer covers the
-        // case where sampling is paused.
+        // also what picks up nickname and vendor edits. The neighbour cache is
+        // polled by the model while this pane is on screen, and its published
+        // change is what rebuilds the map when sampling is paused.
         .onChange(of: monitor.current?.id) { _, _ in rebuildMap() }
         .onChange(of: monitor.status) { _, _ in rebuildMap() }
         .onChange(of: netInfo.arpEntries) { _, _ in rebuildMap() }
+        .onChange(of: netInfo.config.router) { _, _ in rebuildMap() }
         .onChange(of: scanner.results.count) { _, _ in rebuildMap() }
-        .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
-            netInfo.refreshARP()
-            rebuildMap()
-        }
     }
 
     // MARK: Toolbar

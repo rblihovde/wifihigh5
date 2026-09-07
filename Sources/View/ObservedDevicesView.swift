@@ -148,27 +148,41 @@ struct ObservedDevicesView: View {
         } message: {
             Text(Warning.reverseDNS)
         }
-        .onAppear { netInfo.refreshARP() }
-        // These mutate observed state, so they must not run inside the view
-        // update that is reading it. Hopping to the next main-actor turn keeps
-        // the publish out of the current render pass; doing it inline corrupts
-        // the layout of the whole split view, not just this pane.
-        // Watching the filtered list rather than the raw cache matters: the
-        // filter needs the IP settings, which arrive after the entries do, so
-        // keying off the raw cache misses the moment the list first has
-        // content and nothing is ever recorded as present.
+        .onAppear {
+            netInfo.beginARPPolling()
+            // onChange fires on changes only. When the cache is already
+            // populated as this pane opens — which it is whenever the map has
+            // been visited — nothing changes, so without seeding here the
+            // baseline is never taken and every row reads "In cache" forever.
+            let observed = cached
+            if !observed.isEmpty {
+                Task { @MainActor in presence.note(observed) }
+            }
+        }
+        // Two things matter here. The mutation must not run inside the view
+        // update that reads it, so it hops to the next main-actor turn;
+        // publishing inline corrupts the layout of the whole split view rather
+        // than just this pane. And it watches the filtered list rather than the
+        // raw cache, because the filter needs IP settings that arrive after the
+        // entries do: keyed off the raw cache it misses the moment the list
+        // first has content, and nothing is ever recorded as present.
         .onChange(of: cached) { _, observed in
             Task { @MainActor in presence.note(observed) }
         }
-        .onChange(of: activeInterface) { _, _ in
-            Task { @MainActor in presence.reset() }
+        // Only a genuine move counts. Both of these read nil until the first
+        // configuration read lands, and treating that nil-to-value step as a
+        // network change wipes the baseline that was just taken on appear.
+        .onChange(of: activeInterface) { old, new in
+            guard let old, let new, old != new else { return }
+            let observed = cached
+            Task { @MainActor in presence.rebaseline(observed) }
         }
-        .onChange(of: netInfo.config.ipv4) { _, _ in
-            Task { @MainActor in presence.reset() }
+        .onChange(of: netInfo.config.ipv4) { old, new in
+            guard let old, let new, old != new else { return }
+            let observed = cached
+            Task { @MainActor in presence.rebaseline(observed) }
         }
-        .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
-            netInfo.refreshARP()
-        }
+        .onDisappear { netInfo.endARPPolling() }
     }
 
     // MARK: Chrome

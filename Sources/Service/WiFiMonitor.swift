@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import CoreWLAN
 import CoreLocation
 import Combine
@@ -52,13 +53,11 @@ final class LocationGate: NSObject, ObservableObject {
         manager?.requestWhenInUseAuthorization()
 
         // CoreWLAN gates the SSID on the authorization status alone, so this app
-        // never needs a location fix and never keeps one. The single start/stop
-        // below exists only to force the system to evaluate the request now: when
-        // it refuses without prompting it reports kCLErrorDenied straight away,
+        // never needs a location fix and never keeps one. The start/stop pair
+        // exists only to make the system evaluate the request now: when it
+        // refuses without prompting it reports kCLErrorDenied straight away,
         // which is what lets the UI say "blocked by policy" rather than leaving
-        // the operator waiting for a prompt that is never coming. Once access is
-        // granted this is skipped entirely.
-        guard status == .notDetermined else { return }
+        // the operator waiting for a prompt that is never coming.
         manager?.startUpdatingLocation()
         manager?.stopUpdatingLocation()
     }
@@ -87,8 +86,6 @@ extension LocationGate: CLLocationManagerDelegate {
         }
     }
 }
-
-import AppKit
 
 /// Polls the Wi-Fi interface and keeps the rolling history the UI graphs.
 ///
@@ -236,8 +233,10 @@ final class WiFiMonitor: ObservableObject {
 
     // MARK: Waypoints
 
-    /// Marks the current moment. The caller supplies the label afterwards, but
-    /// This method records the timestamp and reading before the caller adds a label.
+    /// Marks the current moment, recording the timestamp and the reading that
+    /// was live at the time. The label can be supplied later without changing
+    /// either, which is the point: the operator presses the key when they reach
+    /// the spot and writes down where they are afterwards.
     @discardableResult
     func addWaypoint(label: String, note: String = "", at time: Date = Date()) -> Waypoint {
         let nearest = samples.last
@@ -372,6 +371,14 @@ final class WiFiMonitor: ObservableObject {
             currentAPSince = nil
             return
         }
+
+        // A Wi-Fi RSSI is always negative. Zero is what the driver returns when
+        // it has no reading, which happens for a poll or two around a roam.
+        // Treating it as data puts a spike to the top of the graph, drags the
+        // average with it, and records a best-ever signal that never happened.
+        // Dropping the sample leaves a one-poll gap the chart already knows how
+        // to draw.
+        guard sample.rssi < 0 else { return }
 
         let key = sample.apKey
         if currentKey != key {

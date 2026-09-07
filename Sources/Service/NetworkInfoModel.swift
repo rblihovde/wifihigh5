@@ -11,6 +11,11 @@ final class NetworkInfoModel: ObservableObject {
     @Published private(set) var isRefreshingARP = false
 
     private var timer: Timer?
+    /// How many visible panes want the neighbour cache kept current. A view
+    /// cannot own this timer: SwiftUI rebuilds the body far more often than
+    /// every five seconds, and a Timer.publish written there is replaced on
+    /// each rebuild, so it never survives long enough to fire.
+    private var arpWatchers = 0
     private var interfaceName = "en0"
     private var refreshGeneration: UInt = 0
     private var arpRefreshGeneration: UInt = 0
@@ -34,7 +39,11 @@ final class NetworkInfoModel: ObservableObject {
     func start() {
         timer?.invalidate()
         let t = Timer(timeInterval: 5.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            Task { @MainActor in
+                guard let self else { return }
+                self.refresh()
+                if self.arpWatchers > 0 { self.refreshARP() }
+            }
         }
         RunLoop.main.add(t, forMode: .common)
         timer = t
@@ -53,6 +62,16 @@ final class NetworkInfoModel: ObservableObject {
                 self.lastRefresh = Date()
             }
         }
+    }
+
+    /// Called by a pane that shows the neighbour cache while it is on screen.
+    func beginARPPolling() {
+        arpWatchers += 1
+        refreshARP()
+    }
+
+    func endARPPolling() {
+        arpWatchers = Swift.max(0, arpWatchers - 1)
     }
 
     /// Reads the passive neighbor cache only when a view that displays it asks.

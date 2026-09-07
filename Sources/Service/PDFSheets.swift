@@ -99,7 +99,11 @@ extension PDFReport {
 
         // Fit the lattice to the drawing area.
         let placed = layout(map)
-        guard var bounds = placed[map.nodes[0].id] else { return }
+        guard var bounds = placed[map.nodes[0].id] else {
+            legend(pen, input)
+            notesBlock(pen, input)
+            return
+        }
         for node in map.nodes.dropFirst() {
             if let rect = placed[node.id] { bounds = bounds.union(rect) }
         }

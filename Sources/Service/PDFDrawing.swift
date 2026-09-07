@@ -37,27 +37,27 @@ enum Type {
         NSFont.monospacedSystemFont(ofSize: size, weight: weight) as CTFont
     }
 
-    static let brand       = sans(11, .bold)
-    static let sheetTitle  = sans(15, .semibold)
-    static let sectionHead = sans(8, .semibold)
-    static let blockLabel  = sans(6, .semibold)
-    static let blockValue  = mono(8, .medium)
-    static let zone        = sans(6, .medium)
+    static var brand: CTFont { sans(11, .bold) }
+    static var sheetTitle: CTFont { sans(15, .semibold) }
+    static var sectionHead: CTFont { sans(8, .semibold) }
+    static var blockLabel: CTFont { sans(6, .semibold) }
+    static var blockValue: CTFont { mono(8, .medium) }
+    static var zone: CTFont { sans(6, .medium) }
 
-    static let nodeTitle   = sans(9, .semibold)
-    static let nodeSub     = mono(6.5)
-    static let nodeKey     = sans(6.5)
-    static let nodeValue   = mono(6.5, .medium)
-    static let designator  = mono(6.5, .bold)
-    static let stamp       = sans(5.5, .bold)
-    static let edgeLabel   = mono(6)
+    static var nodeTitle: CTFont { sans(9, .semibold) }
+    static var nodeSub: CTFont { mono(6.5) }
+    static var nodeKey: CTFont { sans(6.5) }
+    static var nodeValue: CTFont { mono(6.5, .medium) }
+    static var designator: CTFont { mono(6.5, .bold) }
+    static var stamp: CTFont { sans(5.5, .bold) }
+    static var edgeLabel: CTFont { mono(6) }
 
-    static let tableHead   = sans(6.5, .semibold)
-    static let tableCell   = sans(7.5)
-    static let tableMono   = mono(7)
-    static let body        = sans(8)
-    static let bodySmall   = sans(7)
-    static let caption     = sans(6.5)
+    static var tableHead: CTFont { sans(6.5, .semibold) }
+    static var tableCell: CTFont { sans(7.5) }
+    static var tableMono: CTFont { mono(7) }
+    static var body: CTFont { sans(8) }
+    static var bodySmall: CTFont { sans(7) }
+    static var caption: CTFont { sans(6.5) }
 }
 
 /// A thin drawing surface over a PDF context.

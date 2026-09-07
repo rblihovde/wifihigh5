@@ -367,6 +367,15 @@ enum Fmt {
     }()
 
     /// Shortened BSSID for dense UI, e.g. "…:9f:2a".
+    /// Date and time as a drawing is stamped: unambiguous, sortable, no
+    /// dependence on the reader's locale for the month.
+    static func reportStamp(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        return f.string(from: date)
+    }
+
     static func shortMAC(_ mac: String) -> String {
         let parts = mac.split(separator: ":")
         guard parts.count == 6 else { return mac }

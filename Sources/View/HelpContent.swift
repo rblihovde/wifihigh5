@@ -365,6 +365,18 @@ enum HelpContent {
             ]
         ),
         HelpTopic(
+            term: "Exporting a report",
+            category: .networkMap,
+            short: "A drawing set: the diagram, a device schedule, the link data and the method.",
+            body: [
+                "Export PDF draws what is on this tab as a set of sheets rather than a screenshot. Everything is vector, so it stays sharp at any zoom and prints cleanly.",
+                "Sheet 1 is the diagram, laid out on a drafting lattice with a legend keyed to line style. Each node carries a reference designator, N1 upward, so the schedules can point back at it. Sheet 2 is the device schedule, continuing onto further sheets when the list is long. Sheet 3 is the link and radio data with the access points this Mac has recorded. Sheet 4 states how every figure was obtained.",
+                "The site name in the title block comes from the site you gave the current access point, and falls back to the network name. Set a site on the access point to have it named properly.",
+                "Sheets are ANSI B, the size a drawing of this kind is normally issued on. They print on 11 by 17, or scale onto Letter without losing anything.",
+                "The set records whether anything in it was obtained by asking. If you have not run Identify, sheet 4 says plainly that nothing was."
+            ]
+        ),
+        HelpTopic(
             term: "Hardware vendors",
             category: .networkMap,
             short: "Resolved from the IEEE registry, which ships inside the app.",
@@ -543,6 +555,9 @@ enum HelpIndex {
         "departed":        "Observed devices",
         "seen":            "Observed devices",
         "naming devices":  "Naming devices",
+        "export pdf":      "Exporting a report",
+        "report":          "Exporting a report",
+        "title block":     "Exporting a report",
         "suggested type":  "Suggested device type",
         "likely a printer": "Suggested device type",
         "identify":        "Asking devices to identify themselves",

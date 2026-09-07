@@ -35,73 +35,16 @@ struct ObservedDevicesView: View {
     }
 
     private var rows: [ObservedDevice] {
-        let bssid = monitor.current?.bssid
-        var built: [ObservedDevice] = []
-
-        // This Mac first, so the list is read from a known starting point.
-        if let ip = netInfo.config.ipv4, let mac = netInfo.config.activeMAC {
-            built.append(ObservedDevice(
-                mac: DeviceRegistry.normalise(mac),
-                ip: ip,
-                role: .thisMac,
-                record: devices.record(forMAC: mac),
-                vendor: vendors.lookup(mac),
-                sighting: nil,
-                isLocallyAdministered: ARPEntry(ip: ip, mac: mac).isLocallyAdministered,
-                isPresent: true,
-                guess: DeviceClassifier.guess(
-                    vendor: vendors.lookup(mac).displayName,
-                    finding: discovery.finding(forIP: ip),
-                    isLocallyAdministered: ARPEntry(ip: ip, mac: mac).isLocallyAdministered),
-                finding: discovery.finding(forIP: ip)
-            ))
-        }
-
-        for entry in cached {
-            let key = DeviceRegistry.normalise(entry.mac)
-            built.append(ObservedDevice(
-                mac: key,
-                ip: entry.ip,
-                role: DeviceRoleResolver.role(forMAC: entry.mac, ip: entry.ip,
-                                              config: netInfo.config, bssid: bssid),
-                record: devices.record(forMAC: entry.mac),
-                vendor: vendors.lookup(entry.mac),
-                sighting: presence.sighting(forMAC: entry.mac),
-                isLocallyAdministered: entry.isLocallyAdministered,
-                isPresent: true,
-                guess: DeviceClassifier.guess(
-                    vendor: vendors.lookup(entry.mac).displayName,
-                    finding: discovery.finding(forIP: entry.ip),
-                    isLocallyAdministered: entry.isLocallyAdministered),
-                finding: discovery.finding(forIP: entry.ip)
-            ))
-        }
-
-        // Devices seen earlier this session that have dropped out of the cache.
-        if showDeparted {
-            let present = Set(built.map(\.mac))
-            for gone in presence.departed where !present.contains(gone.mac) {
-                built.append(ObservedDevice(
-                    mac: gone.mac,
-                    ip: gone.sighting.lastIP,
-                    role: .device,
-                    record: devices.record(forMAC: gone.mac),
-                    vendor: vendors.lookup(gone.mac),
-                    sighting: gone.sighting,
-                    isLocallyAdministered: ARPEntry(ip: gone.sighting.lastIP,
-                                                    mac: gone.mac).isLocallyAdministered,
-                    isPresent: false,
-                    guess: DeviceClassifier.guess(
-                        vendor: vendors.lookup(gone.mac).displayName,
-                        finding: discovery.finding(forIP: gone.sighting.lastIP),
-                        isLocallyAdministered: ARPEntry(ip: gone.sighting.lastIP,
-                                                        mac: gone.mac).isLocallyAdministered),
-                    finding: discovery.finding(forIP: gone.sighting.lastIP)
-                ))
-            }
-        }
-
-        return sorted(built)
+        sorted(ObservedDeviceBuilder.rows(
+            arp: netInfo.arpEntries,
+            config: netInfo.config,
+            interface: activeInterface,
+            bssid: monitor.current?.bssid,
+            labels: devices,
+            vendors: vendors,
+            presence: presence,
+            discovery: discovery,
+            includeDeparted: showDeparted))
     }
 
     private func sorted(_ list: [ObservedDevice]) -> [ObservedDevice] {

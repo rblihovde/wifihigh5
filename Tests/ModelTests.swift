@@ -346,6 +346,26 @@ private func testTopology(databaseURL: URL) {
            !ARPTable.likelySameChassis("00:00:00:00:00:00", "00:00:00:00:00:01"))
 }
 
+// MARK: Signal extremes
+
+@MainActor
+private func testRSSIExtremes() {
+    let registry = APRegistry()
+    let key = sample(rssi: -50).apKey
+    registry.observe(key: key, sample: sample(rssi: -50))
+    registry.observe(key: key, sample: sample(rssi: -62))
+    expectEqual("the strongest reading is kept", registry.record(for: key)?.bestRSSI, -50)
+    expectEqual("the weakest reading is kept", registry.record(for: key)?.worstRSSI, -62)
+
+    // Zero is the interface saying it has no reading, not a perfect signal.
+    registry.observe(key: key, sample: sample(rssi: 0))
+    expectEqual("a zero reading does not become the best ever",
+                registry.record(for: key)?.bestRSSI, -50)
+    expectEqual("nor does it disturb the worst",
+                registry.record(for: key)?.worstRSSI, -62)
+    registry.forgetAll()
+}
+
 // MARK: Device address keys
 
 @MainActor
@@ -793,6 +813,7 @@ struct TestRunner {
         testExports()
         testRoundTrip()
         testHelpIndex()
+        testRSSIExtremes()
         testDeviceKeys()
         testDeviceRoles()
         testDevicePresence()

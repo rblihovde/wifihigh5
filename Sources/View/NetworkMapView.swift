@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 /// A schematic of the current Wi-Fi path and the local evidence around it.
 ///
@@ -12,6 +14,9 @@ struct NetworkMapView: View {
     @EnvironmentObject private var scanner: Scanner
     @EnvironmentObject private var pinger: GatewayPinger
     @EnvironmentObject private var vendors: VendorDatabase
+    @EnvironmentObject private var deviceLabels: DeviceRegistry
+    @EnvironmentObject private var presence: DevicePresence
+    @EnvironmentObject private var discovery: DeviceDiscovery
 
     @State private var zoom: CGFloat = 1.0
     @State private var committedZoom: CGFloat = 1.0
@@ -22,6 +27,7 @@ struct NetworkMapView: View {
     @State private var lastViewportSize = CGSize(width: 900, height: 600)
     /// Frame new ARP and scan nodes until the user pans or zooms.
     @State private var userAdjusted = false
+    @State private var exportMessage: String?
 
     // Lattice geometry.
     private let nodeWidth: CGFloat = 232
@@ -166,6 +172,57 @@ struct NetworkMapView: View {
         map.notes + (scanner.errorMessage.map { ["Scan could not be refreshed: \($0)"] } ?? [])
     }
 
+    // MARK: Report
+
+    private func exportPDF() {
+        let site: String = {
+            if let key = monitor.current?.apKey,
+               let record = registry.record(for: key),
+               !record.site.isEmpty {
+                return record.site
+            }
+            return monitor.current?.ssid ?? "Site not named"
+        }()
+
+        let input = NetworkReportInput(
+            map: map,
+            devices: ObservedDeviceBuilder.rows(
+                arp: netInfo.arpEntries,
+                config: netInfo.config,
+                interface: monitor.current?.interfaceName ?? netInfo.config.primaryInterface,
+                bssid: monitor.current?.bssid,
+                labels: deviceLabels,
+                vendors: vendors,
+                presence: presence,
+                discovery: discovery,
+                includeDeparted: true),
+            sample: monitor.current,
+            status: monitor.status,
+            config: netInfo.config,
+            accessPoints: registry.allRecords,
+            networkName: monitor.current?.ssid,
+            siteName: site,
+            discoveryUsed: discovery.hasFindings,
+            watchingSince: presence.watchingSince)
+
+        guard let data = PDFReport.render(input) else {
+            exportMessage = "The report could not be drawn."
+            return
+        }
+
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "network-report.pdf"
+        panel.allowedContentTypes = [.pdf]
+        panel.message = "Save the network report. It contains only what this app observed."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try data.write(to: url, options: .atomic)
+            exportMessage = "Report saved."
+        } catch {
+            exportMessage = "The report could not be saved: \(error.localizedDescription)"
+        }
+    }
+
     private var toolbar: some View {
         HStack(spacing: 10) {
             Text("CURRENT WI-FI PATH")
@@ -205,6 +262,20 @@ struct NetworkMapView: View {
 
             Pill(text: "TRANSMITS", tint: .orange)
                 .help("Nearby-network scans send Wi-Fi probe requests")
+
+            Button(action: exportPDF) {
+                Label("Export PDF", systemImage: "doc.richtext")
+            }
+            .controlSize(.small)
+            .help("Draws this map, the device schedule and the link data as a printable report.")
+
+            if let exportMessage {
+                Text(exportMessage)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+                    .onTapGesture { self.exportMessage = nil }
+            }
 
             if let lastScan = scanner.lastScan {
                 Text(Fmt.relativeTime(lastScan))

@@ -101,8 +101,13 @@ final class APRegistry: ObservableObject {
         r.lastSSID = sample.ssid ?? r.lastSSID
         r.lastChannel = sample.channel
         r.lastBandRaw = sample.bandRaw
-        r.bestRSSI = max(r.bestRSSI ?? Int.min, sample.rssi)
-        r.worstRSSI = min(r.worstRSSI ?? Int.max, sample.rssi)
+        // A Wi-Fi RSSI is always negative. Zero is what the interface returns
+        // when it has no reading at all, and recording that as a best-ever
+        // figure claims a perfect signal that never happened.
+        if sample.rssi < 0 {
+            r.bestRSSI = max(r.bestRSSI ?? Int.min, sample.rssi)
+            r.worstRSSI = min(r.worstRSSI ?? Int.max, sample.rssi)
+        }
         records[key.raw] = r
         scheduleSave()
     }

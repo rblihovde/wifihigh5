@@ -29,6 +29,29 @@ echo "==> Checking prerequisites"
 CODESIGN_IDENTITIES=$(security find-identity -v -p codesigning 2>/dev/null || true)
 if grep -Fq "${APP_CERT}" <<<"${CODESIGN_IDENTITIES}"; then
     note "app signing certificate: found"
+
+    # Two certificates can carry the same name, and then codesign refuses the
+    # name as ambiguous. The profile names the one certificate it will accept,
+    # so take the fingerprint from there and sign by hash instead.
+    if [ -f "${PROFILE}" ]; then
+        PROFILE_CERT=$(security cms -D -i "${PROFILE}" 2>/dev/null | python3 -c '
+import sys, plistlib, hashlib
+try:
+    d = plistlib.loads(sys.stdin.buffer.read())
+except Exception:
+    sys.exit(0)
+for c in d.get("DeveloperCertificates", []):
+    print(hashlib.sha1(c).hexdigest().upper())
+' | head -1)
+        if [ -n "${PROFILE_CERT}" ] && grep -Fq "${PROFILE_CERT}" <<<"${CODESIGN_IDENTITIES}"; then
+            APP_CERT="${PROFILE_CERT}"
+            note "signing by fingerprint from the profile: ${PROFILE_CERT}"
+        elif [ -n "${PROFILE_CERT}" ]; then
+            note "MISSING the certificate this profile requires: ${PROFILE_CERT}"
+            note "  The profile will not accept any other Apple Distribution certificate."
+            missing=1
+        fi
+    fi
 else
     note "MISSING app signing certificate: ${APP_CERT}"
     note "  Xcode ▸ Settings ▸ Accounts ▸ Manage Certificates ▸ + ▸ Apple Distribution"

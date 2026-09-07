@@ -15,6 +15,16 @@ struct DeviceGuess: Equatable {
     /// Why, in the words the help uses.
     var basis: String
     var strength: Strength
+    /// Which evidence produced this. The row uses it to avoid printing the
+    /// same fact twice in different words.
+    var source: Source
+
+    enum Source: Equatable {
+        case model
+        case services
+        case name
+        case manufacturer
+    }
 
     enum Strength: Equatable {
         /// The manufacturer makes essentially one kind of network device.
@@ -153,9 +163,213 @@ enum DeviceClassifier {
         "qualcomm", "mediatek", "azurewave", "wistron", "pegatron", "foxconn"
     ]
 
-    /// Works out what a manufacturer implies. Returns nil when it implies
-    /// nothing worth saying.
-    static func guess(vendor: String?) -> DeviceGuess? {
+    // MARK: Entry point
+
+    /// Works out what a device is from everything known about it.
+    ///
+    /// Evidence is taken in order of how directly it comes from the device
+    /// itself. A model string the device published beats a service it offers,
+    /// which beats the name it answers to, which beats an inference from
+    /// whoever manufactured the address. The first one that says anything wins,
+    /// so a weak signal never overrides a strong one.
+    static func guess(vendor: String?,
+                      finding: DeviceFinding? = nil,
+                      isLocallyAdministered: Bool = false) -> DeviceGuess? {
+        if let exact = exactModelGuess(finding?.model) { return exact }
+        // The name comes before the services on purpose. A Mac advertises
+        // AirPlay exactly as an Apple TV does, so "offers AirPlay" cannot tell
+        // the two apart, whereas a device called "MacBook Air" can.
+        if let fromName = nameGuess(finding?.advertisedName ?? finding?.hostname) {
+            return fromName
+        }
+        if let fromServices = serviceGuess(finding?.services) { return fromServices }
+        if let looseModel = looseModelGuess(finding?.model) { return looseModel }
+        // A randomised address belongs to no manufacturer, so the registry can
+        // say nothing about it. Everything above still applies, because those
+        // come from the device rather than from its address.
+        guard !isLocallyAdministered else { return nil }
+        return vendorGuess(vendor)
+    }
+
+    // MARK: Evidence
+
+    /// Apple publishes a model identifier over Bonjour, and it is exact.
+    private static let appleModels: [(prefix: String, category: DeviceCategory, name: String)] = [
+        ("iphone",         .phone,      "iPhone"),
+        ("ipad",           .tablet,     "iPad"),
+        ("ipod",           .phone,      "iPod"),
+        ("macbook",        .laptop,     "MacBook"),
+        ("imac",           .desktop,    "iMac"),
+        ("macmini",        .desktop,    "Mac mini"),
+        ("macpro",         .desktop,    "Mac Pro"),
+        ("macstudio",      .desktop,    "Mac Studio"),
+        ("appletv",        .television, "Apple TV"),
+        ("audioaccessory", .speaker,    "HomePod"),
+        ("homepod",        .speaker,    "HomePod"),
+        ("watch",          .phone,      "Apple Watch")
+    ]
+
+    /// Model identifiers that name one kind of device and nothing else.
+    private static func exactModelGuess(_ model: String?) -> DeviceGuess? {
+        guard let model, !model.isEmpty else { return nil }
+        let name = model.lowercased()
+        for entry in appleModels where name.hasPrefix(entry.prefix) {
+            return DeviceGuess(
+                category: entry.category,
+                summary: entry.name,
+                basis: "The device published its model as \(model).",
+                strength: .likely,
+                source: .model)
+        }
+        return nil
+    }
+
+    /// Model strings that narrow a device without pinning it down. Apple's
+    /// newer Macs all report "Mac<n>,<n>" whether they are a laptop, a mini or
+    /// an iMac, so this runs only after the device's name has had its say.
+    private static let looseModels: [(prefix: String, category: DeviceCategory, name: String)] = [
+        ("aft", .television, "Fire TV"),
+        ("mac", .desktop,    "Mac")
+    ]
+
+    private static func looseModelGuess(_ model: String?) -> DeviceGuess? {
+        guard let model, !model.isEmpty else { return nil }
+        let name = model.lowercased()
+
+        for entry in looseModels where name.hasPrefix(entry.prefix) {
+            return DeviceGuess(
+                category: entry.category,
+                summary: entry.name,
+                basis: "The device published its model as \(model), which narrows it no further.",
+                strength: .possible,
+                source: .model)
+        }
+        if let keyword = keywordGuess(name) {
+            return DeviceGuess(category: keyword.category,
+                               summary: keyword.summary,
+                               basis: "The device published its model as \(model).",
+                               strength: .likely,
+                               source: .model)
+        }
+        return nil
+    }
+
+    /// What a device offers says a good deal about what it is. These are the
+    /// friendly labels recorded against a finding, not the raw service types.
+    private static func serviceGuess(_ services: Set<String>?) -> DeviceGuess? {
+        guard let services, !services.isEmpty else { return nil }
+
+        func offering(_ label: String) -> Bool { services.contains(label) }
+
+        if offering("Printing") || offering("Scanning") {
+            return DeviceGuess(category: .printer, summary: "Printer",
+                               basis: "The device advertises printing.", strength: .likely,
+                               source: .services)
+        }
+        if offering("Camera") {
+            return DeviceGuess(category: .camera, summary: "Camera",
+                               basis: "The device advertises a video stream.", strength: .likely,
+                               source: .services)
+        }
+        if offering("Chromecast") {
+            return DeviceGuess(category: .television, summary: "Chromecast or Google TV",
+                               basis: "The device advertises Chromecast.", strength: .likely,
+                               source: .services)
+        }
+        if offering("AirPlay") {
+            return DeviceGuess(category: .television, summary: "AirPlay display",
+                               basis: "The device advertises AirPlay video.", strength: .likely,
+                               source: .services)
+        }
+        if offering("AirPlay audio") || offering("Speaker") {
+            return DeviceGuess(category: .speaker, summary: "Speaker",
+                               basis: "The device advertises audio playback and nothing visual.",
+                               strength: .likely,
+                               source: .services)
+        }
+        if offering("HomeKit accessory") {
+            return DeviceGuess(category: .iot, summary: "HomeKit accessory",
+                               basis: "The device advertises itself as a HomeKit accessory.",
+                               strength: .likely,
+                               source: .services)
+        }
+        if offering("Computer") || offering("Screen sharing") {
+            return DeviceGuess(category: .desktop, summary: "A computer",
+                               basis: "The device advertises services that only a computer offers.",
+                               strength: .possible,
+                               source: .services)
+        }
+        if offering("File sharing") {
+            return DeviceGuess(category: .storage, summary: "Shares files",
+                               basis: "The device advertises file sharing, which a computer or a storage box may do.",
+                               strength: .possible,
+                               source: .services)
+        }
+        return nil
+    }
+
+    /// Names people and vendors give devices are informal but often plain.
+    private static func nameGuess(_ rawName: String?) -> DeviceGuess? {
+        guard let rawName else { return nil }
+        // Drop any domain, so "iphone.lan" is read as "iphone".
+        let name = rawName.lowercased().split(separator: ".").first.map(String.init) ?? rawName.lowercased()
+        guard let keyword = keywordGuess(name) else { return nil }
+        return DeviceGuess(category: keyword.category,
+                           summary: keyword.summary,
+                           basis: "Its name, \(rawName), says so.",
+                           strength: .possible,
+                           source: .name)
+    }
+
+    /// Distinctive words only. Short or ambiguous fragments are deliberately
+    /// absent, because "cam" and "ap" match far too much.
+    private static let keywords: [(needle: String, category: DeviceCategory, summary: String)] = [
+        ("iphone",     .phone,         "iPhone"),
+        ("ipad",       .tablet,        "iPad"),
+        ("macbook air", .laptop,       "MacBook Air"),
+        ("macbook pro", .laptop,       "MacBook Pro"),
+        ("macbook",    .laptop,        "MacBook"),
+        ("imac",       .desktop,       "iMac"),
+        ("appletv",    .television,    "Apple TV"),
+        ("apple-tv",   .television,    "Apple TV"),
+        ("homepod",    .speaker,       "HomePod"),
+        ("android",    .phone,         "Android phone"),
+        ("pixel",      .phone,         "Pixel phone"),
+        ("galaxy",     .phone,         "Galaxy phone"),
+        ("laserjet",   .printer,       "Printer"),
+        ("officejet",  .printer,       "Printer"),
+        ("deskjet",    .printer,       "Printer"),
+        ("printer",    .printer,       "Printer"),
+        ("scanner",    .printer,       "Scanner"),
+        ("doorbell",   .camera,        "Doorbell camera"),
+        ("camera",     .camera,        "Camera"),
+        ("synology",   .storage,       "Network storage"),
+        ("qnap",       .storage,       "Network storage"),
+        ("chromecast", .television,    "Chromecast"),
+        ("firetv",     .television,    "Fire TV"),
+        ("roku",       .television,    "Roku"),
+        ("shield",     .television,    "NVIDIA Shield"),
+        ("sonos",      .speaker,       "Sonos speaker"),
+        ("echo",       .speaker,       "Amazon Echo"),
+        ("thermostat", .iot,           "Thermostat"),
+        ("ecobee",     .iot,           "Thermostat"),
+        ("switch",     .networkSwitch, "Switch"),
+        ("unifi",      .accessPoint,   "Ubiquiti equipment"),
+        ("gateway",    .router,        "Gateway")
+    ]
+
+    private static func keywordGuess(_ text: String)
+        -> (category: DeviceCategory, summary: String)? {
+        for entry in keywords where text.contains(entry.needle) {
+            return (entry.category, entry.summary)
+        }
+        return nil
+    }
+
+    // MARK: Manufacturer
+
+    /// What the manufacturer alone implies, when it implies anything.
+    private static func vendorGuess(_ vendor: String?) -> DeviceGuess? {
         guard let vendor else { return nil }
         let name = vendor.lowercased()
 
@@ -164,7 +378,8 @@ enum DeviceClassifier {
                 return DeviceGuess(category: rule.category,
                                    summary: rule.summary,
                                    basis: rule.basis,
-                                   strength: rule.strength)
+                                   strength: rule.strength,
+                                   source: .manufacturer)
             }
         }
 
@@ -173,7 +388,8 @@ enum DeviceClassifier {
                 category: nil,
                 summary: "Made by \(vendor)",
                 basis: "This company builds many kinds of hardware, or supplies the wireless part inside someone else's product, so the address does not say what the device is.",
-                strength: .possible)
+                strength: .possible,
+                source: .manufacturer)
         }
         return nil
     }

@@ -310,10 +310,13 @@ enum HelpContent {
         HelpTopic(
             term: "Suggested device type",
             category: .networkMap,
-            short: "A hedge based on who made the hardware. Never a measurement.",
+            short: "What a device most likely is, and which evidence said so.",
             body: [
-                "The IEEE registry says which company owns a hardware address, and for many companies that narrows what the device is. A firm that only builds printers is unlikely to be on the network as anything else, so the row says \u{201C}Likely a printer\u{201D}.",
-                "Nothing is measured to produce this, and no device is contacted. It is an inference from the manufacturer alone, which is why it is always worded as a likelihood and always sits below the name rather than replacing it.",
+                "The row icon and the line beneath the name come from the strongest evidence available, in this order: a model the device published, the name it answers to, the services it offers, and finally the company that made its address.",
+                "A published model is exact, so \u{201C}iPhone14,2\u{201D} settles it. A name is next, because people name things plainly and a device called \u{201C}MacBook Air\u{201D} is one. Services come after names rather than before, because a Mac advertises AirPlay exactly as an Apple TV does: what a device offers often cannot tell two devices apart, but what it is called usually can.",
+                "The IEEE registry is last. It says which company owns a hardware address, and for many companies that narrows what the device is: a firm that only builds printers is unlikely to be on the network as anything else, so the row says \u{201C}Likely a printer\u{201D}.",
+                "The manufacturer step needs nothing from the device and is always on. The other three need a name or a model, which only arrive if you have run Identify, so a device you have not asked about is typed from its maker or not at all.",
+                "None of this is a measurement, which is why it is worded as a likelihood and sits below the name rather than replacing it.",
                 "Companies that build many kinds of product, or that supply the wireless module inside someone else\u{2019}s product, get no type at all. Apple builds phones, tablets, computers, watches and speakers, so the address cannot say which, and the app declines to guess rather than guessing badly.",
                 "A randomised address is never typed, because the prefix belongs to no manufacturer.",
                 "Your own label always wins. Once you set a type on a device, the suggestion is gone."

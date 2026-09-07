@@ -18,6 +18,7 @@ enum DeviceCategory: String, Codable, CaseIterable, Identifiable {
     case laptop
     case desktop
     case television
+    case speaker
     case server
     case storage
     case voip
@@ -38,6 +39,7 @@ enum DeviceCategory: String, Codable, CaseIterable, Identifiable {
         case .laptop:        return "Laptop"
         case .desktop:       return "Desktop"
         case .television:    return "TV or display"
+        case .speaker:       return "Speaker"
         case .server:        return "Server"
         case .storage:       return "Storage"
         case .voip:          return "Desk phone"
@@ -58,6 +60,7 @@ enum DeviceCategory: String, Codable, CaseIterable, Identifiable {
         case .laptop:        return "laptopcomputer"
         case .desktop:       return "desktopcomputer"
         case .television:    return "tv"
+        case .speaker:       return "hifispeaker"
         case .server:        return "server.rack"
         case .storage:       return "externaldrive"
         case .voip:          return "phone"

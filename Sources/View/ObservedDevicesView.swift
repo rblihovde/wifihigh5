@@ -49,7 +49,10 @@ struct ObservedDevicesView: View {
                 sighting: nil,
                 isLocallyAdministered: ARPEntry(ip: ip, mac: mac).isLocallyAdministered,
                 isPresent: true,
-                guess: nil,
+                guess: DeviceClassifier.guess(
+                    vendor: vendors.lookup(mac).displayName,
+                    finding: discovery.finding(forIP: ip),
+                    isLocallyAdministered: ARPEntry(ip: ip, mac: mac).isLocallyAdministered),
                 finding: discovery.finding(forIP: ip)
             ))
         }
@@ -66,9 +69,10 @@ struct ObservedDevicesView: View {
                 sighting: presence.sighting(forMAC: entry.mac),
                 isLocallyAdministered: entry.isLocallyAdministered,
                 isPresent: true,
-                guess: entry.isLocallyAdministered
-                    ? nil
-                    : DeviceClassifier.guess(vendor: vendors.lookup(entry.mac).displayName),
+                guess: DeviceClassifier.guess(
+                    vendor: vendors.lookup(entry.mac).displayName,
+                    finding: discovery.finding(forIP: entry.ip),
+                    isLocallyAdministered: entry.isLocallyAdministered),
                 finding: discovery.finding(forIP: entry.ip)
             ))
         }
@@ -87,7 +91,11 @@ struct ObservedDevicesView: View {
                     isLocallyAdministered: ARPEntry(ip: gone.sighting.lastIP,
                                                     mac: gone.mac).isLocallyAdministered,
                     isPresent: false,
-                    guess: DeviceClassifier.guess(vendor: vendors.lookup(gone.mac).displayName),
+                    guess: DeviceClassifier.guess(
+                        vendor: vendors.lookup(gone.mac).displayName,
+                        finding: discovery.finding(forIP: gone.sighting.lastIP),
+                        isLocallyAdministered: ARPEntry(ip: gone.sighting.lastIP,
+                                                        mac: gone.mac).isLocallyAdministered),
                     finding: discovery.finding(forIP: gone.sighting.lastIP)
                 ))
             }
@@ -475,10 +483,13 @@ struct ObservedDevicesView: View {
         }
         if let model = device.finding?.model { parts.append(model) }
 
-        // What the user filed it under wins over what the maker suggests.
+        // What the user filed it under wins over what the maker suggests, and a
+        // guess is dropped when it would only restate something already on the
+        // row: "MacBookPro18,3 · MacBook" and "iphone / iPhone" say one thing
+        // twice.
         if device.category != .unlabelled {
             parts.append(device.category.label)
-        } else if let guess = device.guess {
+        } else if let guess = device.guess, !restatesTheRow(guess, device) {
             parts.append(guess.summary)
         }
 
@@ -494,6 +505,22 @@ struct ObservedDevicesView: View {
                 : "Hardware address"
         }
         return parts.joined(separator: " · ")
+    }
+
+    /// True when a guess would only repeat what the row already shows.
+    private func restatesTheRow(_ guess: DeviceGuess, _ device: ObservedDevice) -> Bool {
+        switch guess.source {
+        case .model:
+            return device.finding?.model != nil
+        case .name:
+            // The name is where the guess came from, so if the row is already
+            // showing it there is nothing left to add: "Alex's MacBook Air ·
+            // MacBook Air" says one thing twice.
+            return device.displayName.range(of: guess.summary,
+                                            options: .caseInsensitive) != nil
+        case .services, .manufacturer:
+            return false
+        }
     }
 
     private func seenText(_ device: ObservedDevice) -> String {

@@ -647,6 +647,140 @@ private func testDiscoveryFindings() {
                 untouched.displayName, "Observed device")
 }
 
+// MARK: Device type from what the device itself says
+
+@MainActor
+private func testDeviceEvidence() {
+    func finding(model: String? = nil,
+                 services: Set<String> = [],
+                 advertised: String? = nil,
+                 hostname: String? = nil) -> DeviceFinding {
+        DeviceFinding(advertisedName: advertised, model: model,
+                      services: services, hostname: hostname)
+    }
+
+    // A published model is exact, and works even on a randomised address.
+    expectEqual("an iPhone model identifies a phone",
+                DeviceClassifier.guess(vendor: nil,
+                                       finding: finding(model: "iPhone14,2"),
+                                       isLocallyAdministered: true)?.category,
+                .phone)
+    expectEqual("a MacBook model identifies a laptop",
+                DeviceClassifier.guess(vendor: nil,
+                                       finding: finding(model: "MacBookPro18,3"))?.category,
+                .laptop)
+    expectEqual("a HomePod reports itself as an audio accessory",
+                DeviceClassifier.guess(vendor: nil,
+                                       finding: finding(model: "AudioAccessory5,1"))?.category,
+                .speaker)
+
+    // What a device offers is nearly as good.
+    expectEqual("advertising printing identifies a printer",
+                DeviceClassifier.guess(vendor: nil,
+                                       finding: finding(services: ["Printing"]))?.category,
+                .printer)
+    expectEqual("audio without video is a speaker",
+                DeviceClassifier.guess(vendor: nil,
+                                       finding: finding(services: ["AirPlay audio"]))?.category,
+                .speaker)
+    expectEqual("AirPlay video is a display",
+                DeviceClassifier.guess(vendor: nil,
+                                       finding: finding(services: ["AirPlay", "AirPlay audio"]))?.category,
+                .television)
+
+    // The name a device answers to is weaker, but usually plain.
+    expectEqual("a device called iphone is a phone",
+                DeviceClassifier.guess(vendor: nil,
+                                       finding: finding(hostname: "iphone"),
+                                       isLocallyAdministered: true)?.category,
+                .phone)
+    expectEqual("a domain on the name does not hide it",
+                DeviceClassifier.guess(vendor: nil,
+                                       finding: finding(hostname: "iphone.lan"))?.category,
+                .phone)
+    expectEqual("a name is offered only as possible",
+                DeviceClassifier.guess(vendor: nil,
+                                       finding: finding(hostname: "iphone"))?.strength,
+                .possible)
+
+    // Order: the device's own account beats anything worked out from its address.
+    expectEqual("a published model outranks the manufacturer",
+                DeviceClassifier.guess(vendor: "Hewlett Packard",
+                                       finding: finding(model: "iPhone14,2"))?.category,
+                .phone)
+    // A Mac advertises AirPlay exactly as an Apple TV does, so the name has to
+    // win, or every MacBook on the network is filed as a television.
+    expectEqual("a MacBook advertising AirPlay is still a laptop",
+                DeviceClassifier.guess(
+                    vendor: "Apple, Inc",
+                    finding: finding(model: "Mac14,2",
+                                     services: ["AirPlay", "AirPlay audio"],
+                                     advertised: "Alex's MacBook Air"))?.category,
+                .laptop)
+    expectEqual("a television advertising AirPlay is a television",
+                DeviceClassifier.guess(
+                    vendor: nil,
+                    finding: finding(model: "AFTDCT31",
+                                     services: ["AirPlay"],
+                                     advertised: "Alex's TV"))?.category,
+                .television)
+    expectEqual("a bare Mac model narrows no further than a computer",
+                DeviceClassifier.guess(vendor: nil,
+                                       finding: finding(model: "Mac14,3"))?.category,
+                .desktop)
+    expectEqual("and says so, rather than claiming to be sure",
+                DeviceClassifier.guess(vendor: nil,
+                                       finding: finding(model: "Mac14,3"))?.strength,
+                .possible)
+    expectEqual("an advertised service still outranks the manufacturer",
+                DeviceClassifier.guess(vendor: "Apple, Inc",
+                                       finding: finding(services: ["Printing"]))?.category,
+                .printer)
+
+    // A randomised address rules out the registry and nothing else.
+    expect("a randomised address with nothing else yields no type",
+           DeviceClassifier.guess(vendor: "Apple, Inc",
+                                  finding: nil,
+                                  isLocallyAdministered: true) == nil)
+    expectEqual("but the manufacturer still counts on a burned-in address",
+                DeviceClassifier.guess(vendor: "Hewlett Packard",
+                                       finding: nil,
+                                       isLocallyAdministered: false)?.category,
+                .printer)
+
+    // The row picks its icon from whatever the guess settled on.
+    let phone = ObservedDevice(
+        mac: "1a:18:6b:ee:77:da", ip: "192.168.1.175", role: .device,
+        record: nil, vendor: .randomised, sighting: nil,
+        isLocallyAdministered: true, isPresent: true,
+        guess: DeviceClassifier.guess(vendor: nil,
+                                      finding: finding(hostname: "iphone"),
+                                      isLocallyAdministered: true),
+        finding: finding(hostname: "iphone"))
+    expectEqual("a phone gets the phone glyph", phone.symbol, "iphone")
+    expectEqual("and the row records where that came from",
+                phone.guess?.source, .name)
+    expect("a guess drawn from the name is not printed back under the name",
+           phone.displayName.range(of: phone.guess?.summary ?? "zzz",
+                                   options: .caseInsensitive) != nil)
+    expectEqual("a published model is recorded as the device's own account",
+                DeviceClassifier.guess(vendor: nil,
+                                       finding: finding(model: "iPhone14,2"))?.source,
+                .model)
+    expectEqual("an advertised service is recorded as such",
+                DeviceClassifier.guess(vendor: nil,
+                                       finding: finding(services: ["Printing"]))?.source,
+                .services)
+    expectEqual("a manufacturer inference is recorded as such",
+                DeviceClassifier.guess(vendor: "Hewlett Packard")?.source,
+                .manufacturer)
+
+    var labelled = phone
+    labelled.record = DeviceRecord(macKey: "1a:18:6b:ee:77:da",
+                                   categoryRaw: DeviceCategory.printer.rawValue)
+    expectEqual("a type the user set outranks every guess", labelled.symbol, "printer")
+}
+
 @main
 @MainActor
 struct TestRunner {
@@ -666,6 +800,7 @@ struct TestRunner {
         testDeviceCSV()
         testDeviceClassifier()
         testDiscoveryFindings()
+        testDeviceEvidence()
         if CommandLine.arguments.count > 1 {
             let databaseURL = URL(fileURLWithPath: CommandLine.arguments[1])
             testVendorLookup(databaseURL: databaseURL)

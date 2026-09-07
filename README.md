@@ -89,7 +89,7 @@ run:
 ```
 
 The script downloads the MA-L, MA-M, and MA-S registries from IEEE. It validates
-the files and rebuilds `Resources/OUI.txt`. The current file contains 53,183
+the files and rebuilds `Resources/OUI.txt`. The current file contains 53,187
 blocks. Vendor lookup uses the longest matching prefix.
 
 The app does not assign a vendor to a randomized address. It reports that the
@@ -99,6 +99,37 @@ address was assigned by software.
 active Wi-Fi interface and local subnet. The list is not a network inventory.
 It can omit quiet, isolated, or IPv6-only hosts. The app does not probe these
 addresses.
+
+Each row is given a role from settings the Mac already holds: the gateway it was
+told to use, the DHCP and DNS servers in its lease, and the BSSID it is
+associated with. A device type is suggested from the strongest evidence
+available — a model the device published, the name it answers to, the services
+it offers, then the company that made its address. A suggestion is always worded
+as a likelihood and never replaces a name you set.
+
+Double-click a row to give a device a name, a type and a note. Labels follow the
+hardware address rather than the IP, so they survive a new lease, and they are
+written to disk only for devices you have actually labelled. Export or import
+them from the Export menu.
+
+Arrivals and departures are worked out by comparing successive reads of the
+cache. The first read is a baseline; anything appearing later arrived while you
+were watching. A device is called gone only after two consecutive misses. That
+history is held in memory and never written to disk.
+
+## Exporting a report
+
+**Export PDF** on the Network Map draws the map, a device schedule, the link and
+radio data, and a sheet describing how every figure was obtained. Everything is
+vector, so it prints cleanly and stays sharp at any zoom.
+
+Sheets carry a ruled border, zone markers, a legend keyed to line style, and a
+title block naming the site, the network and the time. Each node gets a
+reference designator so the schedules can cite it. The last sheet records
+whether anything in the set was obtained by asking rather than watching.
+
+The site name comes from the site you gave the current access point, and falls
+back to the network name.
 
 ## Walking a site
 
@@ -127,12 +158,25 @@ line across missing readings.
 The app reads the current Wi-Fi link and assigned IP settings. It does not
 capture traffic, probe other hosts, access credentials, or send telemetry.
 
-Two optional features transmit network traffic:
+Four optional features transmit. All are off until you turn them on:
 
 - **Scan Now** sends standard Wi-Fi probe requests.
-- **Gateway ping** sends one ICMP echo per second to the default router.
+- **Gateway ping** sends one ICMP echo per second to your own default router.
+- **Identify ▸ Ask Devices to Identify Themselves** sends Bonjour queries on the
+  local subnet and asks whatever answers to describe itself.
+- **Identify ▸ Look Up Names in DNS** sends one reverse lookup per address to
+  the name servers this network gave the Mac.
 
-Both features are off by default. The Diagnostics tab describes their activity.
+The last two each show a dialog before anything is sent, saying what is
+transmitted, what comes back, where it will be logged afterwards, and what the
+feature is for. Cancel is the default button. Rows carrying anything obtained
+that way are marked `ASKED`, and exports record which rows those were.
+
+The app does not scan ports, sweep addresses, or capture traffic, and it cannot
+see traffic between two other devices: Wi-Fi delivers frames only to the client
+they are addressed to, and each client holds a different key.
+
+The Diagnostics tab describes all of this in the app.
 
 ## The Location Services requirement
 

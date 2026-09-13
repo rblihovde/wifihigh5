@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 // A tiny harness rather than XCTest: the app is built by swiftc directly, and
 // this keeps `./run-tests.sh` a single command with no project restructuring.
@@ -344,6 +345,96 @@ private func testTopology(databaseURL: URL) {
            !ARPTable.likelySameChassis("00:zz:bb:cc:dd:10", "00:zz:bb:cc:dd:17"))
     expect("zero MACs never support a chassis inference",
            !ARPTable.likelySameChassis("00:00:00:00:00:00", "00:00:00:00:00:01"))
+}
+
+// MARK: Chart scale
+
+private func testChartScale() {
+    let steady = [-41, -42, -40, -43, -41]
+
+    // Full keeps the fixed frame while the readings sit inside it.
+    let full = ChartScale.full.verticalRange(signal: steady, noise: [-90])
+    expectEqual("full scale keeps its floor", full.lowerBound, -95)
+    expectEqual("full scale keeps its ceiling", full.upperBound, -25)
+    let loud = ChartScale.full.verticalRange(signal: [-20], noise: [])
+    expect("full scale widens rather than crop a strong reading", loud.upperBound >= -17)
+
+    // Every zoomed scale frames the readings without cropping any of them.
+    for scale in ChartScale.allCases where scale.isZoomed {
+        let range = scale.verticalRange(signal: steady, noise: [])
+        expect("\(scale.label) keeps the lowest reading inside",
+               range.lowerBound <= -43)
+        expect("\(scale.label) keeps the highest reading inside",
+               range.upperBound >= -40)
+        expect("\(scale.label) is at least its stated span",
+               range.upperBound - range.lowerBound >= (scale.minimumSpan ?? 0))
+
+        let step = ChartScale.gridStep(for: range.upperBound - range.lowerBound)
+        expect("\(scale.label) lands on gridlines, so the axis does not shimmer",
+               range.lowerBound.truncatingRemainder(dividingBy: step) == 0 &&
+               range.upperBound.truncatingRemainder(dividingBy: step) == 0)
+    }
+
+    // A roam from strong to weak is far wider than a close scale. The span is
+    // a floor, not a crop: the frame grows to hold both ends.
+    let roam = ChartScale.close.verticalRange(signal: [-40, -72], noise: [])
+    expect("a close scale widens to hold a large swing",
+           roam.lowerBound <= -74 && roam.upperBound >= -38)
+
+    // Zoomed views frame the signal. Including a noise floor 50 dB down would
+    // undo the zoom entirely.
+    let withNoise = ChartScale.fit.verticalRange(signal: steady, noise: [-92])
+    expect("a zoomed scale ignores the noise floor", withNoise.lowerBound > -60)
+
+    // Fit is the tightest view of all.
+    let fit = ChartScale.fit.verticalRange(signal: steady, noise: [])
+    let close = ChartScale.close.verticalRange(signal: steady, noise: [])
+    expect("fit is no wider than the close scale",
+           fit.upperBound - fit.lowerBound <= close.upperBound - close.lowerBound)
+
+    expectEqual("no readings falls back to the full frame",
+                ChartScale.fit.verticalRange(signal: [], noise: []), -95...(-25))
+    expectEqual("close spans label every 2 dB", ChartScale.gridStep(for: 10), 2)
+    expectEqual("medium spans label every 5 dB", ChartScale.gridStep(for: 20), 5)
+    expectEqual("wide spans label every 10 dB", ChartScale.gridStep(for: 70), 10)
+}
+
+// MARK: Smooth curve
+
+private func testSmoothCurve() {
+    // Readings one second apart, with a peak, a trough, a plateau and a jump.
+    let ys: [CGFloat] = [-44, -41, -43, -40, -40, -40, -47, -46, -52, -45, -45, -38]
+    let pts = ys.enumerated().map { CGPoint(x: CGFloat($0.offset) * 10, y: $0.element) }
+    let controls = SmoothCurve.controlPoints(through: pts)
+    expectEqual("one pair of control points per span", controls.count, pts.count - 1)
+
+    // A cubic Bézier never leaves the box its control points make. If both
+    // control points sit between the readings at either end, the curve does
+    // too, which is the guarantee that it draws nothing that was not measured.
+    var overshoots = 0
+    for (i, pair) in controls.enumerated() {
+        let lo = Swift.min(pts[i].y, pts[i + 1].y) - 0.0001
+        let hi = Swift.max(pts[i].y, pts[i + 1].y) + 0.0001
+        for y in [pair.0.y, pair.1.y] where y < lo || y > hi { overshoots += 1 }
+    }
+    expectEqual("the curve never goes past a reading", overshoots, 0)
+
+    // A run of identical readings is drawn flat, not as a wave.
+    let flatStart = 3, flatEnd = 5
+    for i in flatStart..<flatEnd {
+        expect("a plateau is drawn flat",
+               controls[i].0.y == pts[i].y && controls[i].1.y == pts[i + 1].y)
+    }
+
+    // Control points stay inside their span horizontally, so time runs forward.
+    for (i, pair) in controls.enumerated() {
+        expect("the curve moves forward in time",
+               pair.0.x >= pts[i].x && pair.1.x <= pts[i + 1].x)
+    }
+
+    expect("a single reading has no spans", SmoothCurve.controlPoints(through: [pts[0]]).isEmpty)
+    expectEqual("two readings make one span",
+                SmoothCurve.controlPoints(through: Array(pts.prefix(2))).count, 1)
 }
 
 // MARK: Signal extremes
@@ -823,6 +914,8 @@ struct TestRunner {
         testRoundTrip()
         testHelpIndex()
         testRSSIExtremes()
+        testChartScale()
+        testSmoothCurve()
         testDeviceKeys()
         testDeviceRoles()
         testDevicePresence()

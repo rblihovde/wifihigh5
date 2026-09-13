@@ -11,7 +11,10 @@ window and in the menu bar.
 chart. It also gives a short status summary and a recommended next step.
 
 The chart uses a separate colour for each access point. A colour change marks a
-roam. Dashed vertical lines mark each connection change. Point to the chart to
+roam. The scale control above it zooms vertically, from the full range of Wi-Fi
+signal down to a view that fits the readings, so a change of a few dB is easy to
+see; zoomed scales never crop a reading. Drag the handle under the chart to make
+it taller. Dashed vertical lines mark each connection change. Point to the chart to
 see the reading at that time. Optional overlays show noise and transmit rate.
 
 **Network Map** shows the path from this Mac to the access point and router. It
@@ -228,7 +231,9 @@ permission states, subnet limits, topology, and large result sets.
 
 ## Notes
 
-- Sampling runs at 1 s by default. You can select 0.5–5 s in Diagnostics.
+- Sampling runs at 1 s by default. You can select 0.25–5 s in Diagnostics.
+  Sampling reads the Wi-Fi driver on this Mac and sends nothing on the network,
+  at any rate.
 - History is held in memory as a rolling one-hour window at every sampling rate,
   and starts fresh each launch.
   Export to CSV before quitting if you need to keep a walkthrough.

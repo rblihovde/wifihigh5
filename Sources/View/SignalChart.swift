@@ -16,6 +16,7 @@ struct SignalChart: View {
     var showRate: Bool
     /// Poll cadence, used to tell a real sampling gap from normal jitter.
     var sampleInterval: Double = 1.0
+    var scale: ChartScale = .full
 
     @State private var hoverPoint: CGPoint?
 
@@ -23,15 +24,41 @@ struct SignalChart: View {
     private let footer: CGFloat = 22      // x-axis labels
     private let topPad: CGFloat = 14
 
-    // dBm range shown; widened if a sample falls outside it.
-    private var yRange: ClosedRange<Double> {
-        var lo = -95.0, hi = -25.0
-        for s in samples {
-            lo = Swift.min(lo, Double(s.rssi) - 3)
-            hi = Swift.max(hi, Double(s.rssi) + 3)
-            if showNoise, let noise = s.validNoise { lo = Swift.min(lo, Double(noise) - 3) }
+    /// Maps readings onto the plot, built once per redraw.
+    ///
+    /// The vertical range used to be recomputed inside every coordinate lookup
+    /// by scanning every sample, and a lookup is made for every point drawn, so
+    /// each redraw was quadratic in the length of the history. An hour at four
+    /// readings a second made that hundreds of millions of steps per frame.
+    private struct Mapping {
+        let plot: CGRect
+        let range: ClosedRange<Double>
+        let start: Date
+        let span: TimeInterval
+
+        func x(_ t: Date) -> CGFloat {
+            guard span > 0 else { return plot.minX }
+            return plot.minX + plot.width * CGFloat(t.timeIntervalSince(start) / span)
         }
-        return lo...hi
+
+        func y(_ dbm: Double) -> CGFloat {
+            let f = (dbm - range.lowerBound) / (range.upperBound - range.lowerBound)
+            return plot.maxY - plot.height * CGFloat(f)
+        }
+    }
+
+    private func mapping(in size: CGSize) -> Mapping {
+        let plot = CGRect(
+            x: gutter, y: topPad,
+            width: Swift.max(1, size.width - gutter - 8),
+            height: Swift.max(1, size.height - topPad - footer)
+        )
+        let range = scale.verticalRange(
+            signal: samples.map(\.rssi),
+            noise: showNoise ? samples.compactMap(\.validNoise) : [])
+        let (start, end) = timeRange
+        return Mapping(plot: plot, range: range, start: start,
+                       span: end.timeIntervalSince(start))
     }
 
     private var timeRange: (start: Date, end: Date) {
@@ -43,33 +70,29 @@ struct SignalChart: View {
 
     var body: some View {
         GeometryReader { geo in
-            let plot = CGRect(
-                x: gutter, y: topPad,
-                width: Swift.max(1, geo.size.width - gutter - 8),
-                height: Swift.max(1, geo.size.height - topPad - footer)
-            )
+            let m = mapping(in: geo.size)
             ZStack(alignment: .topLeading) {
                 Canvas { ctx, _ in
-                    drawQualityBands(ctx, plot)
-                    drawGrid(ctx, plot)
-                    drawGaps(ctx, plot)
-                    drawRoamMarkers(ctx, plot)
-                    if showRate { drawRateTrace(ctx, plot) }
-                    if showNoise { drawNoiseTrace(ctx, plot) }
-                    drawSignalTrace(ctx, plot)
-                    drawWaypoints(ctx, plot)
-                    drawLiveDot(ctx, plot)
-                    drawTimeAxis(ctx, plot)
-                    if let h = hoverPoint { drawCrosshair(ctx, plot, at: h) }
+                    drawQualityBands(ctx, m)
+                    drawGrid(ctx, m)
+                    drawGaps(ctx, m)
+                    drawRoamMarkers(ctx, m)
+                    if showRate { drawRateTrace(ctx, m) }
+                    if showNoise { drawNoiseTrace(ctx, m) }
+                    drawSignalTrace(ctx, m)
+                    drawWaypoints(ctx, m)
+                    drawLiveDot(ctx, m)
+                    drawTimeAxis(ctx, m)
+                    if let h = hoverPoint { drawCrosshair(ctx, m, at: h) }
                 }
-                if let h = hoverPoint, let s = sample(nearestTo: h.x, in: plot) {
-                    tooltip(for: s, plot: plot)
+                if let h = hoverPoint, let s = sample(nearestTo: h.x, m) {
+                    tooltip(for: s, m)
                 }
             }
             .contentShape(Rectangle())
             .onContinuousHover { phase in
                 switch phase {
-                case .active(let p): hoverPoint = plot.contains(p) ? p : nil
+                case .active(let p): hoverPoint = m.plot.contains(p) ? p : nil
                 case .ended: hoverPoint = nil
                 }
             }
@@ -79,28 +102,16 @@ struct SignalChart: View {
         .accessibilityValue(accessibilitySummary)
     }
 
-    // MARK: Coordinate mapping
+    // MARK: Lookup
 
-    private func x(for t: Date, in plot: CGRect) -> CGFloat {
-        let (s, e) = timeRange
-        let span = e.timeIntervalSince(s)
-        guard span > 0 else { return plot.minX }
-        let f = t.timeIntervalSince(s) / span
-        return plot.minX + plot.width * CGFloat(f)
-    }
-
-    private func y(for dbm: Double, in plot: CGRect) -> CGFloat {
-        let r = yRange
-        let f = (dbm - r.lowerBound) / (r.upperBound - r.lowerBound)
-        return plot.maxY - plot.height * CGFloat(f)
-    }
-
-    private func sample(nearestTo px: CGFloat, in plot: CGRect) -> WiFiSample? {
+    private func sample(nearestTo px: CGFloat, _ m: Mapping) -> WiFiSample? {
         guard !samples.isEmpty else { return nil }
         var best: WiFiSample?
         var bestD = CGFloat.greatestFiniteMagnitude
         for s in samples {
-            let d = abs(x(for: s.time, in: plot) - px)
+            let sx = m.x(s.time)
+            guard sx >= m.plot.minX else { continue }
+            let d = abs(sx - px)
             if d < bestD { bestD = d; best = s }
         }
         return bestD < 40 ? best : nil
@@ -108,48 +119,64 @@ struct SignalChart: View {
 
     // MARK: Drawing
 
-    private func drawQualityBands(_ ctx: GraphicsContext, _ plot: CGRect) {
-        // Bottom-to-top thresholds with the quality each band represents.
+    private func drawQualityBands(_ ctx: GraphicsContext, _ m: Mapping) {
+        // Thresholds from the bottom up, with the quality each band represents.
         let bands: [(Double, Double, SignalQuality)] = [
-            (yRange.lowerBound, -75, .poor),
+            (-.infinity, -75, .poor),
             (-75, -67, .weak),
             (-67, -60, .fair),
             (-60, -50, .good),
-            (-50, yRange.upperBound, .excellent)
+            (-50, .infinity, .excellent)
         ]
-        for (lo, hi, q) in bands where hi > lo {
-            let top = y(for: hi, in: plot), bottom = y(for: lo, in: plot)
-            let rect = CGRect(x: plot.minX, y: top, width: plot.width, height: Swift.max(0, bottom - top))
+        for (bandLo, bandHi, q) in bands {
+            // Clamped to the frame: a zoomed view shows only part of the range,
+            // and an unclamped band would paint over the axis below the plot.
+            let lo = Swift.max(bandLo, m.range.lowerBound)
+            let hi = Swift.min(bandHi, m.range.upperBound)
+            guard hi > lo else { continue }
+            let top = m.y(hi), bottom = m.y(lo)
+            let rect = CGRect(x: m.plot.minX, y: top, width: m.plot.width, height: bottom - top)
             ctx.fill(Path(rect), with: .color(q.color.opacity(0.07)))
+
+            // Zoomed in, the named bands are what stop a one-decibel wiggle from
+            // reading as a real change in the connection.
+            if scale.isZoomed, rect.height > 16 {
+                let label = Text(q.label)
+                    .font(.system(size: 8.5, weight: .medium))
+                    .foregroundStyle(q.color.opacity(0.75))
+                ctx.draw(ctx.resolve(label), at: CGPoint(x: m.plot.minX + 6, y: rect.minY + 8),
+                         anchor: .leading)
+            }
         }
-        ctx.stroke(Path(plot), with: .color(.gray.opacity(0.25)), lineWidth: 1)
+        ctx.stroke(Path(m.plot), with: .color(.gray.opacity(0.25)), lineWidth: 1)
     }
 
-    private func drawGrid(_ ctx: GraphicsContext, _ plot: CGRect) {
-        var v = (yRange.upperBound / 10).rounded(.down) * 10
-        while v > yRange.lowerBound {
-            let yy = y(for: v, in: plot)
-            if yy > plot.minY, yy < plot.maxY {
+    private func drawGrid(_ ctx: GraphicsContext, _ m: Mapping) {
+        let step = ChartScale.gridStep(for: m.range.upperBound - m.range.lowerBound)
+        var v = (m.range.lowerBound / step).rounded(.up) * step
+        while v < m.range.upperBound {
+            let yy = m.y(v)
+            if yy > m.plot.minY + 0.5, yy < m.plot.maxY - 0.5 {
                 var p = Path()
-                p.move(to: CGPoint(x: plot.minX, y: yy))
-                p.addLine(to: CGPoint(x: plot.maxX, y: yy))
+                p.move(to: CGPoint(x: m.plot.minX, y: yy))
+                p.addLine(to: CGPoint(x: m.plot.maxX, y: yy))
                 ctx.stroke(p, with: .color(.gray.opacity(0.16)), lineWidth: 0.5)
                 let t = Text("\(Int(v))").font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
-                ctx.draw(ctx.resolve(t), at: CGPoint(x: plot.minX - 6, y: yy), anchor: .trailing)
+                ctx.draw(ctx.resolve(t), at: CGPoint(x: m.plot.minX - 6, y: yy), anchor: .trailing)
             }
-            v -= 10
+            v += step
         }
         let unit = Text("dBm").font(.system(size: 8, weight: .semibold)).foregroundStyle(.tertiary)
-        ctx.draw(ctx.resolve(unit), at: CGPoint(x: plot.minX - 6, y: plot.minY - 5), anchor: .trailing)
+        ctx.draw(ctx.resolve(unit), at: CGPoint(x: m.plot.minX - 6, y: m.plot.minY - 5), anchor: .trailing)
     }
 
-    private func drawTimeAxis(_ ctx: GraphicsContext, _ plot: CGRect) {
-        let (s, e) = timeRange
-        let span = e.timeIntervalSince(s)
+    private func drawTimeAxis(_ ctx: GraphicsContext, _ m: Mapping) {
+        let span = m.span
         guard span > 0 else { return }
+        let plot = m.plot
         let ticks = 5
         for i in 0...ticks {
-            let t = s.addingTimeInterval(span * Double(i) / Double(ticks))
+            let t = m.start.addingTimeInterval(span * Double(i) / Double(ticks))
             let px = plot.minX + plot.width * CGFloat(i) / CGFloat(ticks)
             let label = span > 3600 ? Fmt.clockShort.string(from: t) : Fmt.clock.string(from: t)
             let txt = Text(label).font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
@@ -177,9 +204,10 @@ struct SignalChart: View {
         return out
     }
 
-    private func drawGaps(_ ctx: GraphicsContext, _ plot: CGRect) {
+    private func drawGaps(_ ctx: GraphicsContext, _ m: Mapping) {
+        let plot = m.plot
         for gap in gaps() {
-            let x0 = x(for: gap.start, in: plot), x1 = x(for: gap.end, in: plot)
+            let x0 = m.x(gap.start), x1 = m.x(gap.end)
             guard x1 > plot.minX, x0 < plot.maxX else { continue }
             let rect = CGRect(x: Swift.max(x0, plot.minX), y: plot.minY,
                               width: Swift.min(x1, plot.maxX) - Swift.max(x0, plot.minX),
@@ -211,31 +239,90 @@ struct SignalChart: View {
         return out
     }
 
-    private func drawSignalTrace(_ ctx: GraphicsContext, _ plot: CGRect) {
+    /// A smooth path through the points. The curve itself is worked out by
+    /// SmoothCurve, which never overshoots a reading.
+    private func smoothPath(through pts: [CGPoint], startingAt start: CGPoint? = nil) -> Path {
+        var path = Path()
+        guard let first = pts.first else { return path }
+        if let start {
+            path.move(to: start)
+            path.addLine(to: first)
+        } else {
+            path.move(to: first)
+        }
+        for (i, controls) in SmoothCurve.controlPoints(through: pts).enumerated() {
+            path.addCurve(to: pts[i + 1], control1: controls.0, control2: controls.1)
+        }
+        return path
+    }
+
+    /// Thins a dense run to at most two points per pixel column, keeping the
+    /// highest and the lowest reading in each column, so no peak or dip is lost.
+    ///
+    /// An hour at four readings a second is 14,400 points on a plot a few
+    /// hundred pixels wide. Drawing them all costs far more than it shows: each
+    /// column can only display the range of the readings that land in it, and
+    /// that range is exactly what the two kept points carry.
+    private func thinned(_ pts: [CGPoint], width: CGFloat) -> [CGPoint] {
+        let limit = Int(width.rounded(.up)) * 2
+        guard limit > 0, pts.count > limit else { return pts }
+        var out: [CGPoint] = []
+        out.reserveCapacity(limit + 2)
+        var column = Int(pts[0].x.rounded(.down))
+        var top = pts[0], bottom = pts[0]
+        func flush() {
+            // Keep the two in the order they were measured.
+            let pair = top.x <= bottom.x ? [top, bottom] : [bottom, top]
+            out.append(pair[0])
+            if pair[1] != pair[0] { out.append(pair[1]) }
+        }
+        for p in pts.dropFirst() {
+            let c = Int(p.x.rounded(.down))
+            if c != column {
+                flush()
+                column = c
+                top = p
+                bottom = p
+                continue
+            }
+            if p.y < top.y { top = p }
+            if p.y > bottom.y { bottom = p }
+        }
+        flush()
+        return out
+    }
+
+    private func drawSignalTrace(_ ctx: GraphicsContext, _ m: Mapping) {
         guard samples.count > 0 else { return }
+        let plot = m.plot
         for seg in segments() {
             guard seg.points.count > 0 else { continue }
             let color = registry.color(for: seg.key)
-            let pts = seg.points.map { CGPoint(x: x(for: $0.time, in: plot), y: y(for: Double($0.rssi), in: plot)) }
+            let pts = thinned(seg.points.map { CGPoint(x: m.x($0.time), y: m.y(Double($0.rssi))) },
+                              width: plot.width)
+
+            // Clipped to the plot: while the chart scrolls, the oldest reading
+            // slides out past the left edge a little at a time instead of
+            // vanishing in one step, and it must not paint over the axis.
+            var clipped = ctx
+            clipped.clip(to: Path(plot))
 
             // Soft fill beneath the run.
-            var fill = Path()
-            fill.move(to: CGPoint(x: pts[0].x, y: plot.maxY))
-            for p in pts { fill.addLine(to: p) }
+            var fill = smoothPath(through: pts,
+                                  startingAt: CGPoint(x: pts[0].x, y: plot.maxY))
             fill.addLine(to: CGPoint(x: pts[pts.count - 1].x, y: plot.maxY))
             fill.closeSubpath()
-            ctx.fill(fill, with: .linearGradient(
+            clipped.fill(fill, with: .linearGradient(
                 Gradient(colors: [color.opacity(0.30), color.opacity(0.02)]),
                 startPoint: CGPoint(x: 0, y: plot.minY),
                 endPoint: CGPoint(x: 0, y: plot.maxY)))
 
-            var line = Path()
-            line.addLines(pts)
-            ctx.stroke(line, with: .color(color), style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+            clipped.stroke(smoothPath(through: pts), with: .color(color),
+                           style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
         }
     }
 
-    private func drawNoiseTrace(_ ctx: GraphicsContext, _ plot: CGRect) {
+    private func drawNoiseTrace(_ ctx: GraphicsContext, _ m: Mapping) {
         // Split on gaps and on samples the driver gave no noise floor for, so
         // the dashed line never spans a stretch that was not measured.
         var runs: [[(Date, Int)]] = []
@@ -250,32 +337,51 @@ struct SignalChart: View {
                 runs.append([(s.time, noise)])
             }
         }
+        // A zoomed view frames the signal, not the noise, so the noise line is
+        // clipped to the plot rather than drawn across the axis labels.
+        var clipped = ctx
+        clipped.clip(to: Path(m.plot))
         for run in runs where run.count > 1 {
-            var p = Path()
-            p.addLines(run.map { CGPoint(x: x(for: $0.0, in: plot), y: y(for: Double($0.1), in: plot)) })
-            ctx.stroke(p, with: .color(.secondary.opacity(0.65)),
-                       style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            let p = smoothPath(through: thinned(run.map { CGPoint(x: m.x($0.0), y: m.y(Double($0.1))) },
+                                                width: m.plot.width))
+            clipped.stroke(p, with: .color(.secondary.opacity(0.65)),
+                           style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+        }
+
+        // Say so when the whole noise floor is off the bottom, rather than
+        // letting the overlay silently vanish.
+        if scale.isZoomed, let noise = samples.last?.validNoise,
+           Double(noise) < m.range.lowerBound {
+            let note = Text("Noise \(noise) dBm, below this scale")
+                .font(.system(size: 8.5))
+                .foregroundStyle(.secondary)
+            ctx.draw(ctx.resolve(note), at: CGPoint(x: m.plot.maxX, y: m.plot.minY - 6),
+                     anchor: .trailing)
         }
     }
 
     /// TX rate on its own implicit scale, for spotting rate collapse.
-    private func drawRateTrace(_ ctx: GraphicsContext, _ plot: CGRect) {
+    private func drawRateTrace(_ ctx: GraphicsContext, _ m: Mapping) {
         let maxRate = Swift.max(samples.map(\.txRate).max() ?? 1, 1)
         guard samples.count > 1 else { return }
+        let plot = m.plot
+        var clipped = ctx
+        clipped.clip(to: Path(plot))
         var p = Path()
         p.addLines(samples.map {
-            CGPoint(x: x(for: $0.time, in: plot),
+            CGPoint(x: m.x($0.time),
                     y: plot.maxY - plot.height * CGFloat($0.txRate / maxRate) * 0.92)
         })
-        ctx.stroke(p, with: .color(.purple.opacity(0.5)),
-                   style: StrokeStyle(lineWidth: 1.2, dash: [5, 2]))
+        clipped.stroke(p, with: .color(.purple.opacity(0.5)),
+                       style: StrokeStyle(lineWidth: 1.2, dash: [5, 2]))
     }
 
-    private func drawRoamMarkers(_ ctx: GraphicsContext, _ plot: CGRect) {
-        let (s, e) = timeRange
-        for ev in roamEvents where ev.time >= s && ev.time <= e {
+    private func drawRoamMarkers(_ ctx: GraphicsContext, _ m: Mapping) {
+        let plot = m.plot
+        let end = m.start.addingTimeInterval(m.span)
+        for ev in roamEvents where ev.time >= m.start && ev.time <= end {
             guard ev.reason.countsAsConnectionChange else { continue }
-            let px = x(for: ev.time, in: plot)
+            let px = m.x(ev.time)
             var p = Path()
             p.move(to: CGPoint(x: px, y: plot.minY))
             p.addLine(to: CGPoint(x: px, y: plot.maxY))
@@ -288,11 +394,12 @@ struct SignalChart: View {
 
     /// Places the operator marked, pinned along the bottom of the plot so they
     /// read as annotations on the trace rather than competing with it.
-    private func drawWaypoints(_ ctx: GraphicsContext, _ plot: CGRect) {
-        let (start, end) = timeRange
+    private func drawWaypoints(_ ctx: GraphicsContext, _ m: Mapping) {
+        let plot = m.plot
+        let end = m.start.addingTimeInterval(m.span)
         var lastLabelEnd: CGFloat = -.greatestFiniteMagnitude
-        for w in waypoints where w.time >= start && w.time <= end {
-            let px = x(for: w.time, in: plot)
+        for w in waypoints where w.time >= m.start && w.time <= end {
+            let px = m.x(w.time)
             guard px >= plot.minX, px <= plot.maxX else { continue }
 
             var line = Path()
@@ -320,23 +427,24 @@ struct SignalChart: View {
         }
     }
 
-    private func drawLiveDot(_ ctx: GraphicsContext, _ plot: CGRect) {
+    private func drawLiveDot(_ ctx: GraphicsContext, _ m: Mapping) {
         guard let last = samples.last else { return }
-        let p = CGPoint(x: x(for: last.time, in: plot), y: y(for: Double(last.rssi), in: plot))
-        guard p.x >= plot.minX, p.x <= plot.maxX else { return }
+        let p = CGPoint(x: m.x(last.time), y: m.y(Double(last.rssi)))
+        guard p.x >= m.plot.minX, p.x <= m.plot.maxX else { return }
         let c = registry.color(for: last.apKey)
         ctx.fill(Path(ellipseIn: CGRect(x: p.x - 6, y: p.y - 6, width: 12, height: 12)), with: .color(c.opacity(0.22)))
         ctx.fill(Path(ellipseIn: CGRect(x: p.x - 3, y: p.y - 3, width: 6, height: 6)), with: .color(c))
     }
 
-    private func drawCrosshair(_ ctx: GraphicsContext, _ plot: CGRect, at point: CGPoint) {
-        guard let s = sample(nearestTo: point.x, in: plot) else { return }
-        let px = x(for: s.time, in: plot)
+    private func drawCrosshair(_ ctx: GraphicsContext, _ m: Mapping, at point: CGPoint) {
+        guard let s = sample(nearestTo: point.x, m) else { return }
+        let plot = m.plot
+        let px = m.x(s.time)
         var v = Path()
         v.move(to: CGPoint(x: px, y: plot.minY))
         v.addLine(to: CGPoint(x: px, y: plot.maxY))
         ctx.stroke(v, with: .color(.primary.opacity(0.28)), lineWidth: 1)
-        let py = y(for: Double(s.rssi), in: plot)
+        let py = m.y(Double(s.rssi))
         ctx.fill(Path(ellipseIn: CGRect(x: px - 4, y: py - 4, width: 8, height: 8)),
                  with: .color(registry.color(for: s.apKey)))
         ctx.stroke(Path(ellipseIn: CGRect(x: px - 4, y: py - 4, width: 8, height: 8)),
@@ -344,8 +452,9 @@ struct SignalChart: View {
     }
 
     @ViewBuilder
-    private func tooltip(for s: WiFiSample, plot: CGRect) -> some View {
-        let px = x(for: s.time, in: plot)
+    private func tooltip(for s: WiFiSample, _ m: Mapping) -> some View {
+        let plot = m.plot
+        let px = m.x(s.time)
         let name = registry.displayName(for: s.apKey, fallbackChannel: s.channel, fallbackBand: s.bandRaw)
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 5) {

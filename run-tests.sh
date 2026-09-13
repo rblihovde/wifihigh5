@@ -17,6 +17,8 @@ swiftc \
     Sources/Model/Survey.swift \
     Sources/Model/APRegistry.swift \
     Sources/Model/Topology.swift \
+    Sources/Model/ChartScale.swift \
+    Sources/Model/SmoothCurve.swift \
     Sources/Model/DeviceRegistry.swift \
     Sources/Model/DeviceRole.swift \
     Sources/Model/DeviceClassifier.swift \

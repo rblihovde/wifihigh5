@@ -10,9 +10,23 @@ struct LiveView: View {
     @AppStorage("chartWindow") private var windowSeconds: Double = 300
     @AppStorage("showNoise") private var showNoise = true
     @AppStorage("showRate") private var showRate = false
+    @AppStorage("chartScale") private var scaleRaw = ChartScale.full.rawValue
+    @AppStorage("chartHeight") private var chartHeight: Double = 250
+    @State private var dragStartHeight: Double?
     @State private var renaming = false
 
     private var window: TimeInterval? { windowSeconds <= 0 ? nil : windowSeconds }
+    private var scale: ChartScale { ChartScale(rawValue: scaleRaw) ?? .full }
+
+    /// Continuous redraws only help while sampling runs and the window is short
+    /// enough for the movement to be visible.
+    private var animatesChart: Bool {
+        guard monitor.isRunning, let window else { return false }
+        return window <= 900
+    }
+
+    private static let defaultChartHeight: Double = 250
+    private static let chartHeightLimits: ClosedRange<Double> = 180...720
 
     var body: some View {
         ScrollView {
@@ -43,6 +57,17 @@ struct LiveView: View {
                     Label("Signal over time", systemImage: "chart.xyaxis.line")
                         .font(.system(size: 11, weight: .semibold))
                     Spacer(minLength: 8)
+                    Picker("", selection: $scaleRaw) {
+                        ForEach(ChartScale.allCases) { option in
+                            Text(option.label).tag(option.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .controlSize(.small)
+                    .frame(width: 230)
+                    .help("Vertical zoom. Tighter scales make small changes easy to see; read the values on the axis. \(scale.help)")
+
                     Picker("", selection: $windowSeconds) {
                         Text("1 min").tag(60.0)
                         Text("5 min").tag(300.0)
@@ -67,20 +92,70 @@ struct LiveView: View {
                         .help("Overlay negotiated transmit rate on a relative scale.")
                 }
 
-                SignalChart(
-                    samples: monitor.samples(inLast: window),
-                    roamEvents: monitor.roamEvents,
-                    waypoints: monitor.waypoints,
-                    registry: registry,
-                    window: window,
-                    referenceDate: monitor.historyReferenceDate,
-                    showNoise: showNoise,
-                    showRate: showRate,
-                    sampleInterval: monitor.interval
-                )
-                .frame(height: 250)
+                // Redrawn continuously rather than once per reading, so the trace
+                // glides instead of stepping. The readings themselves are
+                // unchanged; only the time axis moves between them. Long windows
+                // skip this, because at an hour across the width the movement
+                // is a fraction of a pixel a second and the redraws buy nothing.
+                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !animatesChart)) { context in
+                    SignalChart(
+                        // One reading either side of the window, so the line
+                        // runs off the edge rather than stopping short of it.
+                        samples: monitor.samples(inLast: window.map { $0 + monitor.interval * 2 }),
+                        roamEvents: monitor.roamEvents,
+                        waypoints: monitor.waypoints,
+                        registry: registry,
+                        window: window,
+                        referenceDate: animatesChart ? context.date : monitor.historyReferenceDate,
+                        showNoise: showNoise,
+                        showRate: showRate,
+                        sampleInterval: monitor.interval,
+                        scale: scale
+                    )
+                }
+                .frame(height: chartHeight)
+
+                resizeHandle
             }
         }
+    }
+
+    /// Drag to make the chart taller or shorter. The height is remembered.
+    private var resizeHandle: some View {
+        Capsule()
+            .fill(Color.secondary.opacity(0.35))
+            .frame(width: 38, height: 4)
+            .frame(maxWidth: .infinity, minHeight: 12)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        let start = dragStartHeight ?? chartHeight
+                        if dragStartHeight == nil { dragStartHeight = chartHeight }
+                        chartHeight = clampedHeight(start + value.translation.height)
+                    }
+                    .onEnded { _ in dragStartHeight = nil }
+            )
+            .onTapGesture(count: 2) { chartHeight = Self.defaultChartHeight }
+            .help("Drag to resize the chart. Double-click to restore its height.")
+            .accessibilityElement()
+            .accessibilityLabel("Chart height")
+            .accessibilityValue("\(Int(chartHeight)) points")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: chartHeight = clampedHeight(chartHeight + 40)
+                case .decrement: chartHeight = clampedHeight(chartHeight - 40)
+                @unknown default: break
+                }
+            }
+    }
+
+    private func clampedHeight(_ value: Double) -> Double {
+        Swift.min(Swift.max(value, Self.chartHeightLimits.lowerBound),
+                  Self.chartHeightLimits.upperBound)
     }
 
     /// Colour key for every AP seen this session, so the trace is readable.

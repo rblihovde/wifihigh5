@@ -182,12 +182,14 @@ struct DiagnosticsView: View {
                 HStack {
                     Text("Interval").font(.system(size: 11)).frame(width: 90, alignment: .leading)
                     Picker("", selection: $monitor.interval) {
+                        Text("0.25 s").tag(0.25)
                         Text("0.5 s").tag(0.5)
                         Text("1 s").tag(1.0)
                         Text("2 s").tag(2.0)
                         Text("5 s").tag(5.0)
                     }
-                    .labelsHidden().pickerStyle(.segmented).controlSize(.small).frame(width: 220)
+                    .labelsHidden().pickerStyle(.segmented).controlSize(.small).frame(width: 280)
+                    .help("How often the Wi-Fi driver is read. Reading it sends nothing on the network, at any rate.")
                 }
                 HStack {
                     Text("Monitoring").font(.system(size: 11)).frame(width: 90, alignment: .leading)

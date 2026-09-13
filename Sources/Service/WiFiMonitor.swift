@@ -117,8 +117,9 @@ final class WiFiMonitor: ObservableObject {
     }
 
     private let historyDuration: TimeInterval = 3600
-    /// Safety ceiling for the fastest supported interval, plus some headroom.
-    private let maximumSampleCount = 7500
+    /// Safety ceiling: an hour at the fastest supported interval, a quarter of
+    /// a second, plus some headroom.
+    private let maximumSampleCount = 15_000
 
     private var timer: Timer?
     private var currentKey: APKey?
@@ -196,9 +197,9 @@ final class WiFiMonitor: ObservableObject {
         var roamEvents: [RoamEvent] = []
     }
 
-    /// Twelve hours at one second, an upper bound so a forgotten recording
-    /// cannot grow without limit.
-    private let maximumRecordedSamples = 43_200
+    /// Twelve hours at the fastest interval, an upper bound so a forgotten
+    /// recording cannot grow without limit.
+    private let maximumRecordedSamples = 172_800
     /// Transitions are far rarer than samples, but a client flapping between
     /// two access points can produce them steadily for hours, and this is the
     /// one series that had no ceiling.

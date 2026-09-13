@@ -18,8 +18,9 @@ struct LiveView: View {
     private var window: TimeInterval? { windowSeconds <= 0 ? nil : windowSeconds }
     private var scale: ChartScale { ChartScale(rawValue: scaleRaw) ?? .full }
 
-    /// Continuous redraws only help while sampling runs and the window is short
-    /// enough for the movement to be visible.
+    /// Gliding only helps while sampling runs and the window is short enough
+    /// for the movement to be visible. Past fifteen minutes the chart moves
+    /// less than a point a second.
     private var animatesChart: Bool {
         guard monitor.isRunning, let window else { return false }
         return window <= 900
@@ -92,27 +93,22 @@ struct LiveView: View {
                         .help("Overlay negotiated transmit rate on a relative scale.")
                 }
 
-                // Redrawn continuously rather than once per reading, so the trace
-                // glides instead of stepping. The readings themselves are
-                // unchanged; only the time axis moves between them. Long windows
-                // skip this, because at an hour across the width the movement
-                // is a fraction of a pixel a second and the redraws buy nothing.
-                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !animatesChart)) { context in
-                    SignalChart(
-                        // One reading either side of the window, so the line
-                        // runs off the edge rather than stopping short of it.
-                        samples: monitor.samples(inLast: window.map { $0 + monitor.interval * 2 }),
-                        roamEvents: monitor.roamEvents,
-                        waypoints: monitor.waypoints,
-                        registry: registry,
-                        window: window,
-                        referenceDate: animatesChart ? context.date : monitor.historyReferenceDate,
-                        showNoise: showNoise,
-                        showRate: showRate,
-                        sampleInterval: monitor.interval,
-                        scale: scale
-                    )
-                }
+                SignalChart(
+                    // One reading beyond each edge, so the line runs off the
+                    // edge rather than stopping short of it as the chart slides.
+                    samples: monitor.samples(inLast: window.map { $0 + monitor.interval * 2 }),
+                    roamEvents: monitor.roamEvents,
+                    waypoints: monitor.waypoints,
+                    registry: registry,
+                    window: window,
+                    referenceDate: monitor.historyReferenceDate,
+                    showNoise: showNoise,
+                    showRate: showRate,
+                    sampleInterval: monitor.interval,
+                    scale: scale,
+                    animates: animatesChart,
+                    colorVersion: monitor.sessionAPKeys.map { registry.colorIndexHint(for: $0) }
+                )
                 .frame(height: chartHeight)
 
                 resizeHandle

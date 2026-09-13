@@ -248,7 +248,10 @@ permission states, subnet limits, topology, and large result sets.
 
 - Sampling runs at 1 s by default. You can select 0.25–5 s in Diagnostics.
   Sampling reads the Wi-Fi driver on this Mac and sends nothing on the network,
-  at any rate.
+  at any rate. Faster sampling does cost processor time: measured with the Live
+  Monitor showing, the app uses about 10% of one core at 1 s with the default
+  five-minute chart, about 20% with the one-minute chart scrolling, and about a
+  third of a core at 0.25 s. Keep 1 s for long sessions on battery.
 - History is held in memory as a rolling one-hour window at every sampling rate,
   and starts fresh each launch.
   Export to CSV before quitting if you need to keep a walkthrough.

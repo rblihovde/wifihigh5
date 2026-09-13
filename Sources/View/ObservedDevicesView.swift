@@ -545,17 +545,19 @@ struct ObservedDevicesView: View {
         panel.allowsMultipleSelection = false
         panel.message = "Choose an exported device label file. Existing names are kept on conflict."
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            let data = try Data(contentsOf: url)
-            guard let added = devices.importJSON(data) else {
-                fileMessage = "That file is not a valid WifiHigh5 device label export."
-                return
+        Task {
+            do {
+                let records = try await Task.detached(priority: .userInitiated) {
+                    try DeviceRegistry.decodeImport(ImportGuard.read(url))
+                }.value
+                let added = devices.merge(records)
+                fileMessage = added == 0
+                    ? "Nothing new was imported. Your existing names were kept."
+                    : "Imported \(added) device label\(added == 1 ? "" : "s"). Existing names were kept."
+            } catch {
+                fileMessage = (error as? LocalizedError)?.errorDescription
+                    ?? "The file could not be opened. Nothing was imported."
             }
-            fileMessage = added == 0
-                ? "Nothing new was imported. Your existing names were kept."
-                : "Imported \(added) device label\(added == 1 ? "" : "s"). Existing names were kept."
-        } catch {
-            fileMessage = "The file could not be opened: \(error.localizedDescription)"
         }
     }
 }

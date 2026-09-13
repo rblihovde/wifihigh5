@@ -30,6 +30,15 @@ private func sample(rssi: Int, noise: Int = -90, bssid: String? = "aa:bb:cc:dd:e
                hardwareAddress: "11:22:33:44:55:66")
 }
 
+/// A fresh folder for a registry under test, so no test ever reads or writes
+/// the saved data in Application Support.
+private func scratchFolder() -> URL {
+    let url = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("wifihigh5-tests-\(UUID().uuidString)", isDirectory: true)
+    try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return url
+}
+
 // MARK: Signal quality thresholds
 
 private func testSignalQuality() {
@@ -145,7 +154,7 @@ private func testSurveyLegs() {
 @MainActor
 private func testExports() {
     let base = Date(timeIntervalSince1970: 1_700_000_000)
-    let registry = APRegistry()
+    let registry = APRegistry(folder: scratchFolder())
     let samples = (0..<5).map { sample(rssi: -55, at: Double($0), from: base) }
     let nasty = Waypoint(time: base, label: "Reception, \"main\" desk")
     let session = SurveySession(
@@ -211,7 +220,7 @@ private func scannedAP(_ suffix: Int, rssi: Int) -> ScanResult {
 
 @MainActor
 private func testTopology(databaseURL: URL) {
-    let registry = APRegistry()
+    let registry = APRegistry(folder: scratchFolder())
     let vendors = VendorDatabase(url: databaseURL)
     let pinger = GatewayPinger()
     let now = Date(timeIntervalSince1970: 1_700_000_100)
@@ -437,11 +446,349 @@ private func testSmoothCurve() {
                 SmoothCurve.controlPoints(through: Array(pts.prefix(2))).count, 1)
 }
 
+// MARK: CSV neutralisation
+
+/// Splits one CSV line into cell values, undoing the quoting the way a
+/// spreadsheet does before it decides whether a cell is a formula.
+private func csvCells(_ line: String) -> [String] {
+    var cells: [String] = []
+    var current = ""
+    var quoted = false
+    let chars = Array(line.unicodeScalars)
+    var i = 0
+    while i < chars.count {
+        let c = chars[i]
+        if quoted {
+            if c == "\"" {
+                if i + 1 < chars.count, chars[i + 1] == "\"" {
+                    current.unicodeScalars.append("\"")
+                    i += 1
+                } else {
+                    quoted = false
+                }
+            } else {
+                current.unicodeScalars.append(c)
+            }
+        } else if c == "\"" {
+            quoted = true
+        } else if c == "," {
+            cells.append(current)
+            current = ""
+        } else {
+            current.unicodeScalars.append(c)
+        }
+        i += 1
+    }
+    cells.append(current)
+    return cells
+}
+
+private func startsLikeFormula(_ cell: String) -> Bool {
+    guard let first = cell.unicodeScalars.first else { return false }
+    return "=+-@\t\r\n\u{FF1D}\u{FF0B}\u{FF0D}\u{FF20}".unicodeScalars.contains(first)
+}
+
+@MainActor
+private func testCSVEncoder() {
+    for lead in ["=", "+", "-", "@", "\t", "\r", "\n", "\u{FF1D}", "\u{FF0B}", "\u{FF0D}", "\u{FF20}"] {
+        let cell = csvCells(CSVEncoder.field(lead + "SUM(1,2)")).joined(separator: ",")
+        let code = String(lead.unicodeScalars.first!.value, radix: 16)
+        expect("a field led by U+\(code) cannot start a formula", !startsLikeFormula(cell))
+    }
+    // Swift reads CR LF as one character; the check must still catch it.
+    expect("a field led by CR LF is neutralised", CSVEncoder.field("\r\n=1").hasPrefix("\"'"))
+    expectEqual("ordinary text is untouched", CSVEncoder.field("Reception printer"), "Reception printer")
+    expectEqual("a comma is quoted", CSVEncoder.field("a,b"), "\"a,b\"")
+    expectEqual("a quote is doubled", CSVEncoder.field("say \"hi\""), "\"say \"\"hi\"\"\"")
+    expectEqual("a bare carriage return is quoted", CSVEncoder.field("a\rb"), "\"a\rb\"")
+    expectEqual("a formula with commas and quotes is neutralised, then quoted",
+                CSVEncoder.field("=HYPERLINK(\"http://x\",\"y\")"),
+                "\"'=HYPERLINK(\"\"http://x\"\",\"\"y\"\")\"")
+
+    // Names chosen by a device on the network, carried all the way through.
+    let hostile = DeviceFinding(advertisedName: "=HYPERLINK(\"http://evil.example\",\"open\")",
+                                model: "+cmd|' /C calc'!A0",
+                                services: ["Printing"],
+                                hostname: "@SUM(1+1)")
+    let device = ObservedDevice(
+        mac: "aa:bb:cc:dd:ee:ff", ip: "192.168.1.9", role: .device,
+        record: DeviceRecord(macKey: "aa:bb:cc:dd:ee:ff", notes: "-2+3"),
+        vendor: .known("Example Corp"), sighting: nil,
+        isLocallyAdministered: false, isPresent: true, guess: nil, finding: hostile)
+    let deviceCSV = ReportBuilder.deviceCSV([device], networkName: "=1+1")
+    var formulaCells = 0
+    for line in deviceCSV.split(separator: "\n") {
+        for cell in csvCells(String(line)) where startsLikeFormula(cell) { formulaCells += 1 }
+    }
+    expectEqual("no cell of the device export starts a formula", formulaCells, 0)
+    expect("the hostile name is kept, neutralised", deviceCSV.contains("'=HYPERLINK"))
+
+    // A walkthrough export carries an SSID, a nickname and a spot label.
+    let registry = APRegistry(folder: scratchFolder())
+    let reading = sample(rssi: -50, ssid: "=1+1")
+    registry.setNickname("-evil", for: reading.apKey)
+    let session = SurveySession(
+        name: "T", site: "", started: reading.time, ended: reading.time.addingTimeInterval(5),
+        sampleInterval: 1, samples: [reading], roamEvents: [],
+        waypoints: [Waypoint(time: reading.time, label: "+SUM(A1)", note: "",
+                             rssi: nil, snr: nil, apKeyRaw: nil)])
+    let rows = ReportBuilder.csv(for: session, registry: registry).split(separator: "\n")
+    let row = csvCells(String(rows[1]))
+    for column in 1...4 {
+        expect("walkthrough text column \(column) cannot start a formula",
+               !startsLikeFormula(row[column]))
+    }
+    expectEqual("signal readings stay plain numbers", row[5], "-50")
+}
+
+// MARK: Untrusted text
+
+private func testUntrustedText() {
+    expectEqual("control characters are removed",
+                UntrustedText.clean("A\u{0007}B\u{001B}C", limit: 50), "ABC")
+    expectEqual("newlines go unless allowed", UntrustedText.clean("a\nb", limit: 50), "ab")
+    expectEqual("newlines stay where allowed",
+                UntrustedText.clean("a\nb", limit: 50, allowNewlines: true), "a\nb")
+    expectEqual("direction overrides are removed",
+                UntrustedText.clean("invoice\u{202E}fdp.exe", limit: 50), "invoicefdp.exe")
+    expectEqual("length is capped",
+                UntrustedText.clean(String(repeating: "é", count: 300), limit: 256).count, 256)
+    expectEqual("emoji survive", UntrustedText.clean("Living Room 📺", limit: 50), "Living Room 📺")
+    expect("an IPv4 address is recognised", UntrustedText.isIPv4("192.168.1.1"))
+    expect("an out-of-range octet is refused", !UntrustedText.isIPv4("999.1.1.1"))
+    expect("three octets is refused", !UntrustedText.isIPv4("1.2.3"))
+    expect("a MAC is recognised", UntrustedText.isMAC("aa:bb:cc:dd:ee:ff"))
+    expect("short octets are allowed", UntrustedText.isMAC("0:1b:63:a:b:c"))
+    expect("five octets is refused", !UntrustedText.isMAC("aa:bb:cc:dd:ee"))
+    expect("non-hex is refused", !UntrustedText.isMAC("zz:bb:cc:dd:ee:ff"))
+}
+
+// MARK: Import checks
+
+@MainActor
+private func testImportChecks() {
+    let folder = scratchFolder()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let registry = APRegistry(folder: folder)
+    let enc = JSONEncoder()
+    enc.dateEncodingStrategy = .iso8601
+
+    func record(_ key: String, colour: Int? = nil) -> APRecord {
+        var r = APRecord(keyRaw: key)
+        r.nickname = "AP"
+        r.colorOverride = colour
+        return r
+    }
+    func key(_ suffix: String) -> APKey { APKey(raw: "bssid:aa:bb:cc:dd:ee:" + suffix) }
+
+    let badColours = [-1, Int.min, APPalette.colors.count, Int.max]
+    var list = badColours.enumerated().map { record("bssid:aa:bb:cc:dd:ee:0\($0.offset)", colour: $0.element) }
+    list.append(record("bssid:aa:bb:cc:dd:ee:09", colour: 5))
+    var long = record("bssid:aa:bb:cc:dd:ee:0a")
+    long.nickname = String(repeating: "x", count: 10_000)
+    long.notes = "keep\nlines\u{0007}"
+    list.append(long)
+    var spoof = record("bssid:aa:bb:cc:dd:ee:0b")
+    spoof.nickname = "Office\u{202E}txt.exe"
+    list.append(spoof)
+    var impossible = record("bssid:aa:bb:cc:dd:ee:0c")
+    impossible.bestRSSI = 0
+    impossible.worstRSSI = -500
+    list.append(impossible)
+    var future = record("bssid:aa:bb:cc:dd:ee:0d")
+    future.lastSeen = Date().addingTimeInterval(86_400 * 365)
+    list.append(future)
+    list.append(record("bssid:not-a-mac"))
+    list.append(record("evil-key"))
+    list.append(record("fp:Net|ch36|b2|p6|s4"))
+
+    guard let data = try? enc.encode(list) else {
+        expect("the import fixture encodes", false)
+        return
+    }
+    expectEqual("malformed keys are dropped and the rest imported",
+                registry.importJSON(data), list.count - 2)
+    for offset in badColours.indices {
+        expect("an out-of-palette colour is discarded",
+               registry.record(for: key("0\(offset)"))?.colorOverride == nil)
+        expect("the colour a report asks for is in range",
+               APPalette.colors.indices.contains(registry.colorIndexHint(for: key("0\(offset)"))))
+    }
+    expectEqual("a valid colour survives", registry.record(for: key("09"))?.colorOverride, 5)
+    expectEqual("names are capped", registry.record(for: key("0a"))?.nickname.count, ImportGuard.maxNameLength)
+    expectEqual("notes keep line breaks and lose control characters",
+                registry.record(for: key("0a"))?.notes, "keep\nlines")
+    expectEqual("direction overrides are removed", registry.record(for: key("0b"))?.nickname, "Officetxt.exe")
+    expect("impossible signal readings are discarded",
+           registry.record(for: key("0c"))?.bestRSSI == nil && registry.record(for: key("0c"))?.worstRSSI == nil)
+    expect("a date in the future is brought back to now",
+           (registry.record(for: key("0d"))?.lastSeen ?? .distantFuture) <= Date())
+    expect("a fingerprint key is accepted", registry.record(for: APKey(raw: "fp:Net|ch36|b2|p6|s4")) != nil)
+    expect("a malformed key is refused", registry.record(for: APKey(raw: "evil-key")) == nil)
+
+    // A bad colour already on disk is repaired when it is read back.
+    let disk = scratchFolder()
+    defer { try? FileManager.default.removeItem(at: disk) }
+    if let raw = try? enc.encode([record("bssid:aa:bb:cc:dd:ee:ff", colour: -1)]) {
+        try? raw.write(to: disk.appendingPathComponent("access-points.json"))
+    }
+    expect("a bad colour saved before this check is repaired on load",
+           APRegistry(folder: disk).record(for: key("ff"))?.colorOverride == nil)
+
+    // And one that reaches a report by any other route cannot crash it.
+    let reportRegistry = APRegistry(folder: scratchFolder())
+    let reading = sample(rssi: -55)
+    reportRegistry.setColor(-1, for: reading.apKey)
+    let session = SurveySession(
+        name: "T", site: "", started: reading.time, ended: reading.time.addingTimeInterval(1),
+        sampleInterval: 1, samples: [reading], roamEvents: [], waypoints: [])
+    expect("a report with an out-of-palette colour is still written",
+           ReportBuilder.html(for: session, registry: reportRegistry).count > 100)
+
+    // Limits refuse a file before it can change anything.
+    let before = registry.records.count
+    expectEqual("a file that is not an export is refused", registry.importJSON(Data("not json".utf8)), nil)
+    expectEqual("a refused import changes nothing", registry.records.count, before)
+
+    let many = (0...ImportGuard.maxRecords).map { APRecord(keyRaw: String(format: "fp:n%05d", $0)) }
+    if let raw = try? enc.encode(many) {
+        var failure: ImportGuard.Failure?
+        do { _ = try APRegistry.decodeImport(raw) } catch { failure = error as? ImportGuard.Failure }
+        expectEqual("an import with too many records is refused",
+                    failure, .tooManyRecords(ImportGuard.maxRecords + 1))
+    }
+
+    func sparseFile(_ name: String, bytes: Int) -> URL {
+        let url = folder.appendingPathComponent(name)
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        if let handle = try? FileHandle(forWritingTo: url) {
+            try? handle.truncate(atOffset: UInt64(bytes))
+            try? handle.close()
+        }
+        return url
+    }
+    var sizeFailure: ImportGuard.Failure?
+    do { _ = try ImportGuard.read(sparseFile("big.json", bytes: ImportGuard.maxFileBytes + 1)) }
+    catch { sizeFailure = error as? ImportGuard.Failure }
+    expectEqual("a file over the size limit is refused unread",
+                sizeFailure, .tooLarge(bytes: ImportGuard.maxFileBytes + 1))
+    expectEqual("a file at the size limit is read",
+                (try? ImportGuard.read(sparseFile("limit.json", bytes: ImportGuard.maxFileBytes)))?.count,
+                ImportGuard.maxFileBytes)
+
+    // Device labels get the same treatment.
+    let labels = DeviceRegistry(folder: scratchFolder())
+    let incoming = [
+        DeviceRecord(macKey: "AA-BB-CC-DD-EE-01", nickname: "Printer\u{0000}", lastIP: "192.168.1.40"),
+        DeviceRecord(macKey: "not-a-mac", nickname: "Nope"),
+        DeviceRecord(macKey: "aa:bb:cc:dd:ee:02", nickname: "Cam", categoryRaw: "rocketship", lastIP: "999.1.1.1"),
+        DeviceRecord(macKey: "aa:bb:cc:dd:ee:03", nickname: "\u{0007}\u{202E}")
+    ]
+    if let raw = try? enc.encode(incoming) {
+        expectEqual("only well-formed labels with something to say are imported",
+                    labels.importJSON(raw), 2)
+    }
+    expectEqual("a label's address is normalised", labels.nickname(forMAC: "aa:bb:cc:dd:ee:01"), "Printer")
+    expectEqual("an unknown type becomes unlabelled", labels.category(forMAC: "aa:bb:cc:dd:ee:02"), .unlabelled)
+    expect("an impossible IP address is dropped", labels.record(forMAC: "aa:bb:cc:dd:ee:02")?.lastIP == nil)
+    expect("a label that is empty once cleaned is refused", labels.record(forMAC: "aa:bb:cc:dd:ee:03") == nil)
+}
+
+// MARK: Neighbour cache parsing
+
+/// One routing message laid out the way the kernel writes it, with a knob for
+/// breaking each part.
+private func routeMessage(ip: [UInt8] = [192, 168, 1, 20],
+                          mac: [UInt8] = [0x00, 0x1b, 0x63, 0x11, 0x22, 0x33],
+                          inetLength: UInt8 = 16,
+                          nameLength: UInt8 = 0,
+                          fitName: Bool = true,
+                          addressLength: UInt8 = 6,
+                          claimedLength: Int? = nil) -> [UInt8] {
+    let header = MemoryLayout<rt_msghdr>.size
+    let dataField = MemoryLayout<sockaddr_dl>.offset(of: \.sdl_data)!
+    let total = header + 16 + dataField + (fitName ? Int(nameLength) : 0) + 6
+    var bytes = [UInt8](repeating: 0, count: total)
+
+    let claimed = UInt16(claimedLength ?? total)
+    let lengthField = MemoryLayout<rt_msghdr>.offset(of: \.rtm_msglen)!
+    bytes[lengthField] = UInt8(claimed & 0xff)
+    bytes[lengthField + 1] = UInt8(claimed >> 8)
+
+    bytes[header] = inetLength
+    bytes[header + 1] = UInt8(AF_INET)
+    let addressField = header + MemoryLayout<sockaddr_inarp>.offset(of: \.sin_addr)!
+    for (i, b) in ip.enumerated() { bytes[addressField + i] = b }
+
+    let link = header + 16
+    bytes[link] = UInt8(min(255, dataField + Int(nameLength) + 6))
+    bytes[link + 1] = UInt8(AF_LINK)
+    bytes[link + MemoryLayout<sockaddr_dl>.offset(of: \.sdl_nlen)!] = nameLength
+    bytes[link + MemoryLayout<sockaddr_dl>.offset(of: \.sdl_alen)!] = addressLength
+    let macStart = link + dataField + Int(nameLength)
+    if macStart + 6 <= total {
+        for (i, b) in mac.enumerated() { bytes[macStart + i] = b }
+    }
+    return bytes
+}
+
+private func parseRoutes(_ bytes: [UInt8]) -> [ARPEntry] {
+    bytes.withUnsafeBytes { ARPTable.parse($0) }
+}
+
+private func testRouteParsing() {
+    let good = parseRoutes(routeMessage())
+    expectEqual("a well-formed message is read", good.count, 1)
+    expectEqual("its IP address is read", good.first?.ip, "192.168.1.20")
+    expectEqual("its hardware address is read", good.first?.mac, "00:1b:63:11:22:33")
+    expectEqual("an interface name is stepped over",
+                parseRoutes(routeMessage(nameLength: 3)).first?.mac, "00:1b:63:11:22:33")
+
+    expect("an empty buffer yields nothing", parseRoutes([]).isEmpty)
+    expect("a header alone yields nothing",
+           parseRoutes([UInt8](repeating: 0, count: MemoryLayout<rt_msghdr>.size)).isEmpty)
+    expect("a length past the buffer stops the read", parseRoutes(routeMessage(claimedLength: 4096)).isEmpty)
+    expect("a length shorter than a header stops the read", parseRoutes(routeMessage(claimedLength: 4)).isEmpty)
+    expect("an address running past its message is skipped", parseRoutes(routeMessage(inetLength: 255)).isEmpty)
+    expect("an interface name running past its message is skipped",
+           parseRoutes(routeMessage(nameLength: 200, fitName: false)).isEmpty)
+    for length: UInt8 in [0, 5, 7, 20] {
+        expect("a hardware address of \(length) bytes is skipped",
+               parseRoutes(routeMessage(addressLength: length)).isEmpty)
+    }
+    let mixed = routeMessage(inetLength: 255) + routeMessage(ip: [10, 0, 0, 7])
+    expectEqual("a bad message does not stop the next", parseRoutes(mixed).map(\.ip), ["10.0.0.7"])
+    let truncatedTail = routeMessage() + Array(routeMessage().prefix(20))
+    expectEqual("a truncated final message is ignored", parseRoutes(truncatedTail).count, 1)
+
+    // Random buffers, half with a plausible length so the inner checks run.
+    // Seeded, so a failure reproduces.
+    var seed: UInt64 = 0x9E37_79B9_7F4A_7C15
+    func next() -> UInt64 {
+        seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+        return seed >> 33
+    }
+    let lengthField = MemoryLayout<rt_msghdr>.offset(of: \.rtm_msglen)!
+    var survived = 0
+    for _ in 0..<20_000 {
+        let count = Int(next() % 400)
+        var bytes = (0..<count).map { _ in UInt8(truncatingIfNeeded: next()) }
+        if count >= lengthField + 2, next() % 2 == 0 {
+            let claimed = UInt16(truncatingIfNeeded: next() % UInt64(count + 1))
+            bytes[lengthField] = UInt8(claimed & 0xff)
+            bytes[lengthField + 1] = UInt8(claimed >> 8)
+        }
+        _ = parseRoutes(bytes)
+        survived += 1
+    }
+    expectEqual("twenty thousand malformed buffers are read without a fault", survived, 20_000)
+}
+
 // MARK: Signal extremes
 
 @MainActor
 private func testRSSIExtremes() {
-    let registry = APRegistry()
+    let registry = APRegistry(folder: scratchFolder())
     let key = sample(rssi: -50).apKey
     registry.observe(key: key, sample: sample(rssi: -50))
     registry.observe(key: key, sample: sample(rssi: -62))
@@ -915,6 +1262,10 @@ struct TestRunner {
         testHelpIndex()
         testRSSIExtremes()
         testChartScale()
+        testCSVEncoder()
+        testUntrustedText()
+        testImportChecks()
+        testRouteParsing()
         testSmoothCurve()
         testDeviceKeys()
         testDeviceRoles()

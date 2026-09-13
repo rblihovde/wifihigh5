@@ -2,9 +2,10 @@
 # Builds a sandboxed, Apple-Distribution-signed package for the Mac App Store.
 #
 # This is a separate target from build.sh on purpose. build.sh produces the
-# Developer ID build you run at client sites; it is not sandboxed and is
-# notarised rather than reviewed. The App Store build is sandboxed, signed with
-# a different certificate, and wrapped in a signed installer package.
+# Developer ID build for direct download, which is notarised rather than
+# reviewed. Both are sandboxed with the same capabilities; this one is signed
+# with a different certificate, carries a provisioning profile, and is wrapped
+# in a signed installer package.
 #
 # Run with --check to see what is still missing without building.
 set -euo pipefail
@@ -113,6 +114,7 @@ echo "==> Bundling"
 cp Resources/Info.plist "${BUNDLE}/Contents/Info.plist"
 [ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns "${BUNDLE}/Contents/Resources/"
 [ -f Resources/OUI.txt ] && cp Resources/OUI.txt "${BUNDLE}/Contents/Resources/"
+cp Resources/container-migration.plist "${BUNDLE}/Contents/Resources/"
 printf 'APPL????' > "${BUNDLE}/Contents/PkgInfo"
 cp "${PROFILE}" "${BUNDLE}/Contents/embedded.provisionprofile"
 

@@ -127,17 +127,19 @@ struct DiagnosticsView: View {
 
                 group("It does not", [
                     "Capture, inspect or decode any traffic.",
-                    "Probe, port-scan or fingerprint other hosts.",
+                    "Scan ports, sweep address ranges or probe hosts for weaknesses.",
                     "Attempt to join networks or handle credentials.",
                     "Send telemetry or use cloud services. The app has no accounts."
                 ], .secondary, "xmark")
 
                 group("It transmits only when you ask", [
                     "Scan Now sends probe requests, the same frames as joining a network.",
-                    "Gateway ping sends ICMP echo to your own default router, and nowhere else."
+                    "Gateway ping sends ICMP echo to your own default router, and nowhere else.",
+                    "Identify can send Bonjour queries asking devices on this network to describe themselves.",
+                    "Identify can send reverse DNS lookups for observed addresses to this network's name servers."
                 ], .orange, "exclamationmark")
 
-                Text("Both transmitting features are off until you switch them on, and each is labelled where it appears.")
+                Text("All four are off until you switch them on, and each is labelled where it appears. The two Identify options ask for confirmation first. None of them sends anything to the developer.")
                     .font(.system(size: 10.5)).foregroundStyle(Color.subtle)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -212,7 +214,7 @@ struct DiagnosticsView: View {
     private var dataCard: some View {
         Card("Local data", systemImage: "externaldrive") {
             VStack(alignment: .leading, spacing: 9) {
-                Text("Access point nicknames and saved walkthroughs are written to disk on this Mac only.")
+                Text("Access point names, device labels and saved walkthroughs are written to disk on this Mac only, inside the app's sandbox container.")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                 Text(registry.storeLocation)
                     .font(.system(size: 10, design: .monospaced))

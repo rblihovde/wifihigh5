@@ -2,7 +2,24 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- The location entitlement lets the app request access to SSID and BSSID. -->
+    <!-- The directly distributed build is sandboxed like the App Store one.
+         Unsandboxed, any future flaw in the app would reach everything the
+         user can reach; sandboxed, it reaches the app's own container. The
+         capabilities below are the same narrow set the App Store build has
+         always shipped with. -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+
+    <!-- Outgoing sockets: the optional gateway echo, Bonjour and reverse DNS. -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- Only files the user picks in an Open or Save panel. -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+
+    <!-- macOS classifies Wi-Fi network names as location data, so this is what
+         allows the SSID and BSSID to be read. No location fix is requested. -->
     <key>com.apple.security.personal-information.location</key>
     <true/>
 </dict>

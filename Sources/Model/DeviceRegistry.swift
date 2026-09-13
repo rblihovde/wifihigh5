@@ -218,20 +218,54 @@ final class DeviceRegistry: ObservableObject {
         return try? enc.encode(records.values.filter(\.isDeliberate).sorted { $0.macKey < $1.macKey })
     }
 
-    /// Merges an exported file. Existing labels win on conflict, so importing a
-    /// colleague's file cannot silently overwrite your own naming.
-    @discardableResult
-    func importJSON(_ data: Data) -> Int? {
+    /// Decodes and checks a label file without touching the registry, so it can
+    /// run away from the main thread and a rejected file changes nothing.
+    nonisolated static func decodeImport(_ data: Data) throws -> [DeviceRecord] {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
-        guard let list = try? dec.decode([DeviceRecord].self, from: data) else { return nil }
+        guard let list = try? dec.decode([DeviceRecord].self, from: data) else {
+            throw ImportGuard.Failure.notAnExport
+        }
+        guard list.count <= ImportGuard.maxRecords else {
+            throw ImportGuard.Failure.tooManyRecords(list.count)
+        }
+        return list.compactMap(validatedImport)
+    }
+
+    /// One imported label, corrected where it can be and dropped where it
+    /// cannot: a record must name a real hardware address and still say
+    /// something once its text has been cleaned.
+    nonisolated static func validatedImport(_ record: DeviceRecord) -> DeviceRecord? {
+        let key = normalise(record.macKey)
+        guard UntrustedText.isMAC(key) else { return nil }
+        var r = record
+        r.macKey = key
+        r.nickname = UntrustedText.clean(r.nickname, limit: ImportGuard.maxNameLength)
+        r.notes = UntrustedText.clean(r.notes, limit: ImportGuard.maxNotesLength, allowNewlines: true)
+        if DeviceCategory(rawValue: r.categoryRaw) == nil {
+            r.categoryRaw = DeviceCategory.unlabelled.rawValue
+        }
+        if let ip = r.lastIP, !UntrustedText.isIPv4(ip) { r.lastIP = nil }
+        let now = Date()
+        if r.created > now { r.created = now }
+        if r.lastSeen > now { r.lastSeen = now }
+        return r.isDeliberate ? r : nil
+    }
+
+    /// Imports a file already read. Returns nil for a file that is not an export.
+    @discardableResult
+    func importJSON(_ data: Data) -> Int? {
+        guard let list = try? Self.decodeImport(data) else { return nil }
+        return merge(list)
+    }
+
+    /// Merges checked labels in. Existing labels win on conflict, so importing a
+    /// colleague's file cannot silently overwrite your own naming.
+    @discardableResult
+    func merge(_ list: [DeviceRecord]) -> Int {
         var added = 0
-        for incoming in list where incoming.isDeliberate {
-            let key = Self.normalise(incoming.macKey)
-            guard records[key] == nil else { continue }
-            var copy = incoming
-            copy.macKey = key
-            records[key] = copy
+        for incoming in list where records[incoming.macKey] == nil {
+            records[incoming.macKey] = incoming
             added += 1
         }
         if added > 0 { scheduleSave() }

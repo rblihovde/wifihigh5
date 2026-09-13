@@ -55,7 +55,7 @@ final class DeviceDiscovery: ObservableObject {
 
         let scan = BonjourScan()
         self.scan = scan
-        scan.start(duration: duration) { [weak self] found in
+        scan.start(duration: duration) { [weak self] found, truncated in
             Task { @MainActor in
                 guard let self else { return }
                 self.merge(found)
@@ -63,9 +63,13 @@ final class DeviceDiscovery: ObservableObject {
                 self.lastBonjourRun = Date()
                 self.scan = nil
                 let named = found.values.filter { $0.advertisedName != nil }.count
-                self.message = named == 0
+                var message = named == 0
                     ? "No device on this network answered. Many networks separate clients from each other, which blocks this."
                     : "\(named) device\(named == 1 ? "" : "s") answered with a name."
+                if truncated {
+                    message += " The network advertised more services than one scan accepts, so the rest were ignored."
+                }
+                self.message = message
             }
         }
     }
@@ -115,8 +119,8 @@ final class DeviceDiscovery: ObservableObject {
             }
         }
         guard result == 0 else { return nil }
-        let name = String(cString: host)
-        return name == address ? nil : name
+        let name = UntrustedText.clean(String(cString: host), limit: 253)
+        return name.isEmpty || name == address ? nil : name
     }
 
     // MARK: Housekeeping
@@ -179,14 +183,26 @@ private final class BonjourScan: NSObject, NetServiceBrowserDelegate,
         ("_spotify-connect._tcp.", "Speaker")
     ]
 
+    /// A device chooses what it advertises, and a hostile one could advertise
+    /// without end. These bound the work one scan will do on its behalf.
+    static let maximumServices = 500
+    static let maximumConcurrentResolves = 16
+    static let maximumAddresses = 1_024
+
     private var browsers: [NetServiceBrowser] = []
     private var pending: [NetService] = []
+    private var waiting: [NetService] = []
+    private var resolving = 0
+    private var settled = Set<ObjectIdentifier>()
+    private var seen = Set<String>()
+    private var truncated = false
     private var labels: [ObjectIdentifier: String] = [:]
     private var results: [String: DeviceFinding] = [:]
-    private var completion: (([String: DeviceFinding]) -> Void)?
+    private var completion: (([String: DeviceFinding], Bool) -> Void)?
     private var finished = false
 
-    func start(duration: TimeInterval, completion: @escaping ([String: DeviceFinding]) -> Void) {
+    func start(duration: TimeInterval,
+               completion: @escaping ([String: DeviceFinding], Bool) -> Void) {
         self.completion = completion
         for entry in Self.types {
             let browser = NetServiceBrowser()
@@ -206,8 +222,20 @@ private final class BonjourScan: NSObject, NetServiceBrowserDelegate,
         browsers.removeAll()
         pending.forEach { $0.stop() }
         pending.removeAll()
-        completion?(results)
+        waiting.removeAll()
+        completion?(results, truncated)
         completion = nil
+    }
+
+    /// Frees a resolve slot and starts the next waiting service. Safe to call
+    /// more than once for a service, because a service can report back twice.
+    private func resolveSettled(_ service: NetService) {
+        guard settled.insert(ObjectIdentifier(service)).inserted else { return }
+        resolving = Swift.max(0, resolving - 1)
+        guard !finished, !waiting.isEmpty else { return }
+        let next = waiting.removeFirst()
+        resolving += 1
+        next.resolve(withTimeout: 4)
     }
 
     private func label(for type: String) -> String {
@@ -220,33 +248,54 @@ private final class BonjourScan: NSObject, NetServiceBrowserDelegate,
                            didFind service: NetService,
                            moreComing: Bool) {
         guard !finished else { return }
+        let identity = "\(service.name)|\(service.type)|\(service.domain)"
+        guard !seen.contains(identity) else { return }
+        guard seen.count < Self.maximumServices else {
+            truncated = true
+            return
+        }
+        seen.insert(identity)
         labels[ObjectIdentifier(service)] = label(for: service.type)
         service.delegate = self
         pending.append(service)
-        service.resolve(withTimeout: 4)
+        if resolving < Self.maximumConcurrentResolves {
+            resolving += 1
+            service.resolve(withTimeout: 4)
+        } else {
+            waiting.append(service)
+        }
     }
 
     // MARK: NetServiceDelegate
 
     func netServiceDidResolveAddress(_ service: NetService) {
+        defer { resolveSettled(service) }
         guard !finished, let addresses = service.addresses else { return }
         let label = labels[ObjectIdentifier(service)] ?? "Network service"
 
+        // Everything below was chosen by the device. It is cleaned and capped
+        // before it can reach the screen, an export or a report.
         var model: String?
         if let data = service.txtRecordData() {
             let txt = NetService.dictionary(fromTXTRecord: data)
             if let raw = txt["model"], let text = String(data: raw, encoding: .utf8) {
-                model = text
+                let cleaned = UntrustedText.clean(text, limit: 128)
+                if !cleaned.isEmpty { model = cleaned }
             }
         }
+        let name = UntrustedText.clean(service.name, limit: 256)
 
         for data in addresses {
             guard let ip = Self.ipv4(from: data) else { continue }
+            guard results[ip] != nil || results.count < Self.maximumAddresses else {
+                truncated = true
+                continue
+            }
             var finding = results[ip] ?? DeviceFinding()
             // _device-info._tcp carries the model but a machine-generated
             // instance name, so it must not supply the display name.
             if !service.type.hasPrefix("_device-info") {
-                finding.advertisedName = finding.advertisedName ?? service.name
+                if finding.advertisedName == nil, !name.isEmpty { finding.advertisedName = name }
                 finding.services.insert(label)
             }
             finding.model = model ?? finding.model
@@ -255,8 +304,9 @@ private final class BonjourScan: NSObject, NetServiceBrowserDelegate,
     }
 
     func netService(_ service: NetService, didNotResolve errorDict: [String: NSNumber]) {
-        // A device that will not resolve is simply not described. There is
-        // nothing to retry and nothing worth telling the user.
+        // A device that will not resolve is simply not described. Its slot is
+        // handed to the next service waiting.
+        resolveSettled(service)
     }
 
     private static func ipv4(from data: Data) -> String? {

@@ -134,10 +134,10 @@ enum ReportBuilder {
             let spot = ordered.last { $0.time <= s.time }?.label ?? ""
             let cols = [
                 Fmt.stamp.string(from: s.time),
-                escapeCSV(spot),
-                escapeCSV(s.ssid ?? ""),
-                s.bssid ?? "",
-                escapeCSV(registry.nickname(for: s.apKey) ?? ""),
+                CSVEncoder.field(spot),
+                CSVEncoder.field(s.ssid ?? ""),
+                CSVEncoder.field(s.bssid ?? ""),
+                CSVEncoder.field(registry.nickname(for: s.apKey) ?? ""),
                 String(s.rssi),
                 s.validNoise.map(String.init) ?? "",
                 s.snr.map(String.init) ?? "",
@@ -207,7 +207,10 @@ enum ReportBuilder {
         let palette = ["#4d9ef2", "#f2735a", "#59cc8c", "#d98cf2", "#fabf40",
                        "#59d1d9", "#f28cb2", "#99bf4d", "#8c8cf2", "#e5a666",
                        "#66b3bf", "#cc6688"]
-        return palette[index % palette.count]
+        // Positive modulo. Swift's remainder keeps the sign, so -1 % 12 is -1,
+        // and an imported colour of -1 used to crash the report here.
+        let count = palette.count
+        return palette[((index % count) + count) % count]
     }
 
     private static func esc(_ s: String) -> String {
@@ -228,7 +231,7 @@ enum ReportBuilder {
         let asked = devices.contains(where: \.wasDiscovered)
 
         var lines = ["# WifiHigh5 observed devices"]
-        lines.append("# Network,\(escapeCSV(networkName ?? "Not available"))")
+        lines.append("# Network,\(CSVEncoder.field(networkName ?? "Not available"))")
         lines.append("# Exported,\(stamp.string(from: Date()))")
         lines.append("# Source,Passive read of this Mac's neighbour cache. No address was scanned or swept.")
         lines.append(asked
@@ -239,23 +242,23 @@ enum ReportBuilder {
 
         for device in devices {
             lines.append([
-                escapeCSV(device.displayName),
-                escapeCSV(device.role.label),
-                escapeCSV(device.category == .unlabelled ? "" : device.category.label),
-                escapeCSV(device.category == .unlabelled ? (device.guess?.summary ?? "") : ""),
-                escapeCSV(device.ip),
-                escapeCSV(device.mac),
-                escapeCSV(device.isLocallyAdministered ? "Private or virtual" : "Hardware"),
-                escapeCSV(device.vendorText),
-                escapeCSV(device.finding?.advertisedName ?? ""),
-                escapeCSV(device.finding?.model ?? ""),
-                escapeCSV(device.finding.map { $0.services.sorted().joined(separator: "; ") } ?? ""),
-                escapeCSV(device.finding?.hostname ?? ""),
-                escapeCSV(device.wasDiscovered ? "Asked" : "No"),
-                escapeCSV(status(device)),
-                escapeCSV(device.sighting.map { stamp.string(from: $0.firstSeen) } ?? ""),
-                escapeCSV(device.sighting.map { stamp.string(from: $0.lastSeen) } ?? ""),
-                escapeCSV(device.record?.notes ?? "")
+                CSVEncoder.field(device.displayName),
+                CSVEncoder.field(device.role.label),
+                CSVEncoder.field(device.category == .unlabelled ? "" : device.category.label),
+                CSVEncoder.field(device.category == .unlabelled ? (device.guess?.summary ?? "") : ""),
+                CSVEncoder.field(device.ip),
+                CSVEncoder.field(device.mac),
+                CSVEncoder.field(device.isLocallyAdministered ? "Private or virtual" : "Hardware"),
+                CSVEncoder.field(device.vendorText),
+                CSVEncoder.field(device.finding?.advertisedName ?? ""),
+                CSVEncoder.field(device.finding?.model ?? ""),
+                CSVEncoder.field(device.finding.map { $0.services.sorted().joined(separator: "; ") } ?? ""),
+                CSVEncoder.field(device.finding?.hostname ?? ""),
+                CSVEncoder.field(device.wasDiscovered ? "Asked" : "No"),
+                CSVEncoder.field(status(device)),
+                CSVEncoder.field(device.sighting.map { stamp.string(from: $0.firstSeen) } ?? ""),
+                CSVEncoder.field(device.sighting.map { stamp.string(from: $0.lastSeen) } ?? ""),
+                CSVEncoder.field(device.record?.notes ?? "")
             ].joined(separator: ","))
         }
         return lines.joined(separator: "\n") + "\n"
@@ -268,8 +271,4 @@ enum ReportBuilder {
         return "Present"
     }
 
-    private static func escapeCSV(_ s: String) -> String {
-        guard s.contains(",") || s.contains("\"") || s.contains("\n") else { return s }
-        return "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-    }
 }

@@ -55,6 +55,9 @@ if [ -f Resources/OUI.txt ]; then
 else
     echo "    note: Resources/OUI.txt missing — run tools/update-oui.sh for vendor names"
 fi
+# Moves data written by the unsandboxed builds before 1.2 into the container
+# on first launch, so nothing appears to vanish when the sandbox arrives.
+cp Resources/container-migration.plist "${STAGING_BUNDLE}/Contents/Resources/container-migration.plist"
 printf 'APPL????' > "${STAGING_BUNDLE}/Contents/PkgInfo"
 
 echo "==> Signing as: ${IDENTITY}"

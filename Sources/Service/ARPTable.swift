@@ -71,45 +71,69 @@ enum ARPTable {
         }
         guard needed > 0, needed <= buffer.count else { return [] }
 
+        return buffer.withUnsafeBytes { raw in
+            parse(UnsafeRawBufferPointer(rebasing: raw.prefix(needed)))
+        }
+        #endif
+    }
+
+    /// Decodes a routing-table dump into neighbour entries.
+    ///
+    /// The buffer comes from the kernel, not the network, so a hostile peer
+    /// cannot shape it. It is still read with raw pointers, so every field is
+    /// proved to lie inside its own message before it is touched, and a
+    /// message that fails any check is skipped rather than trusted. Fields are
+    /// read unaligned: the kernel packs messages end to end, and nothing
+    /// guarantees a structure starts on its natural boundary.
+    static func parse(_ raw: UnsafeRawBufferPointer) -> [ARPEntry] {
+        let headerSize = MemoryLayout<rt_msghdr>.size
+        let lengthField = MemoryLayout<rt_msghdr>.offset(of: \.rtm_msglen)!
+        let indexField = MemoryLayout<rt_msghdr>.offset(of: \.rtm_index)!
+        let addressField = MemoryLayout<sockaddr_inarp>.offset(of: \.sin_addr)!
+        let nameLengthField = MemoryLayout<sockaddr_dl>.offset(of: \.sdl_nlen)!
+        let addressLengthField = MemoryLayout<sockaddr_dl>.offset(of: \.sdl_alen)!
+        let dataField = MemoryLayout<sockaddr_dl>.offset(of: \.sdl_data)!
+
         var entries: [ARPEntry] = []
         var offset = 0
-        buffer.withUnsafeBytes { raw in
-            while offset + MemoryLayout<rt_msghdr>.size <= needed {
-                let messageLength = Int(raw.loadUnaligned(fromByteOffset: offset, as: UInt16.self))
-                guard messageLength > 0, offset + messageLength <= needed else { break }
-                defer { offset += messageLength }
+        while offset + headerSize <= raw.count {
+            let length = Int(raw.loadUnaligned(fromByteOffset: offset + lengthField, as: UInt16.self))
+            // A length that would not advance, or that runs past the buffer,
+            // means the rest cannot be framed. Stop rather than guess.
+            guard length >= headerSize, offset + length <= raw.count else { break }
+            defer { offset += length }
+            let messageEnd = offset + length
 
-                let base = raw.baseAddress!.advanced(by: offset)
-                let header = base.assumingMemoryBound(to: rt_msghdr.self)
-                let sin = base.advanced(by: MemoryLayout<rt_msghdr>.size)
-                    .assumingMemoryBound(to: sockaddr_inarp.self)
-                let sdl = UnsafeRawPointer(sin)
-                    .advanced(by: Int(sin.pointee.sin_len))
-                    .assumingMemoryBound(to: sockaddr_dl.self)
+            // The IPv4 address follows the header.
+            let inetStart = offset + headerSize
+            guard inetStart + addressField + MemoryLayout<in_addr>.size <= messageEnd else { continue }
+            let inetLength = Int(raw[inetStart])
 
-                guard sdl.pointee.sdl_alen == 6 else { continue }
-                var address = sin.pointee.sin_addr
-                var text = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-                guard inet_ntop(AF_INET, &address, &text, socklen_t(INET_ADDRSTRLEN)) != nil else {
-                    continue
-                }
+            // Route messages pad each address to a four-byte boundary. arp(8)
+            // steps over it the same way, and an empty one still takes four.
+            let inetStep = inetLength > 0 ? ((inetLength - 1) | 3) + 1 : 4
+            let linkStart = inetStart + inetStep
+            guard linkStart + dataField <= messageEnd else { continue }
 
-                let dataStart = UnsafeRawPointer(sdl)
-                    .advanced(by: MemoryLayout<sockaddr_dl>.offset(of: \.sdl_data)!)
-                let macBytes = dataStart
-                    .advanced(by: Int(sdl.pointee.sdl_nlen))
-                    .assumingMemoryBound(to: UInt8.self)
-                let mac = (0..<6).map { String(format: "%02x", macBytes[$0]) }.joined(separator: ":")
+            let nameLength = Int(raw[linkStart + nameLengthField])
+            let addressLength = Int(raw[linkStart + addressLengthField])
+            guard addressLength == 6 else { continue }
+            let macStart = linkStart + dataField + nameLength
+            guard macStart + 6 <= messageEnd else { continue }
 
-                var interfaceBuffer = [CChar](repeating: 0, count: Int(IF_NAMESIZE))
-                let interface = if_indextoname(UInt32(header.pointee.rtm_index), &interfaceBuffer)
-                    .map { String(cString: $0) }
-                entries.append(ARPEntry(ip: String(cString: text), mac: mac,
-                                        interfaceName: interface))
+            var address = raw.loadUnaligned(fromByteOffset: inetStart + addressField, as: in_addr.self)
+            var text = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+            guard inet_ntop(AF_INET, &address, &text, socklen_t(INET_ADDRSTRLEN)) != nil else {
+                continue
             }
+            let mac = (0..<6).map { String(format: "%02x", raw[macStart + $0]) }.joined(separator: ":")
+
+            let index = raw.loadUnaligned(fromByteOffset: offset + indexField, as: UInt16.self)
+            var interfaceBuffer = [CChar](repeating: 0, count: Int(IF_NAMESIZE))
+            let interface = if_indextoname(UInt32(index), &interfaceBuffer).map { String(cString: $0) }
+            entries.append(ARPEntry(ip: String(cString: text), mac: mac, interfaceName: interface))
         }
         return entries
-        #endif
     }
 
     /// Returns passive ARP entries for the active interface and IPv4 subnet.

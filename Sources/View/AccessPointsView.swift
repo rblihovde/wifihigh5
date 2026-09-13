@@ -187,17 +187,19 @@ struct AccessPointsView: View {
         panel.allowsMultipleSelection = false
         panel.message = "Choose an exported access point file. Existing nicknames are kept on conflict."
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            let data = try Data(contentsOf: url)
-            guard let changed = registry.importJSON(data) else {
-                fileMessage = "That file is not a valid WifiHigh5 access point export."
-                return
+        Task {
+            do {
+                let records = try await Task.detached(priority: .userInitiated) {
+                    try APRegistry.decodeImport(ImportGuard.read(url))
+                }.value
+                let changed = registry.merge(records)
+                fileMessage = changed == 0
+                    ? "Nothing new was imported. Your existing names and notes were kept."
+                    : "Imported details for \(changed) access point\(changed == 1 ? "" : "s"). Existing names and notes were kept."
+            } catch {
+                fileMessage = (error as? LocalizedError)?.errorDescription
+                    ?? "The file could not be opened. Nothing was imported."
             }
-            fileMessage = changed == 0
-                ? "Nothing new was imported. Your existing names and notes were kept."
-                : "Imported details for \(changed) access point\(changed == 1 ? "" : "s"). Existing names and notes were kept."
-        } catch {
-            fileMessage = "The file could not be opened: \(error.localizedDescription)"
         }
     }
 }

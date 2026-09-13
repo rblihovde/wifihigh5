@@ -49,11 +49,16 @@ troubleshooting steps.
 Select the **+** next to an AP name to add a nickname, site, notes, and chart
 colour.
 
-Nicknames are keyed to the AP's BSSID and stored locally as JSON at:
+Nicknames are keyed to the AP's BSSID and stored locally as JSON inside the
+app's sandbox container:
 
 ```
-~/Library/Application Support/WifiHigh5/access-points.json
+~/Library/Containers/com.rblihovde.wifihigh5/Data/Library/Application Support/WifiHigh5/access-points.json
 ```
+
+Builds before 1.2 were not sandboxed and kept this folder in
+`~/Library/Application Support`. The first sandboxed launch moves it into the
+container automatically.
 
 The app keeps this file on the Mac. Use the Access Points tab to export or import
 names.
@@ -174,6 +179,16 @@ The last two each show a dialog before anything is sent, saying what is
 transmitted, what comes back, where it will be logged afterwards, and what the
 feature is for. Cancel is the default button. Rows carrying anything obtained
 that way are marked `ASKED`, and exports record which rows those were.
+
+Both the direct download and the App Store build run in the macOS App Sandbox,
+with the same narrow set of capabilities: outgoing connections, files you choose
+in an Open or Save panel, and Location for the network name.
+
+Imported files are checked before anything in them is used: size, record count,
+field lengths and identifier formats, with anything the app would not have
+written itself corrected or dropped. CSV exports neutralise any cell that a
+spreadsheet would read as a formula, since several columns carry names that
+devices on the network chose.
 
 The app does not scan ports, sweep addresses, or capture traffic, and it cannot
 see traffic between two other devices: Wi-Fi delivers frames only to the client

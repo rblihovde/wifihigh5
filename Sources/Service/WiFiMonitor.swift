@@ -528,28 +528,20 @@ final class WiFiMonitor: ObservableObject {
         for s in samples {
             let name = registry.nickname(for: s.apKey) ?? ""
             let cols: [String] = [
-                Fmt.stamp.string(from: s.time),
-                csvEscape(s.ssid ?? ""),
-                s.bssid ?? "",
-                csvEscape(name),
+                CSVEncoder.field(Fmt.stamp.string(from: s.time)),
+                CSVEncoder.field(s.ssid ?? ""),
+                CSVEncoder.field(s.bssid ?? ""),
+                CSVEncoder.field(name),
                 String(s.rssi), s.validNoise.map(String.init) ?? "", s.snr.map(String.init) ?? "",
-                String(s.channel), s.band.label, channelWidthLabel(s.channelWidthRaw),
-                phyModeLabel(s.phyRaw), csvEscape(securityLabel(s.securityRaw)),
-                String(format: "%.0f", s.txRate), s.quality.label
+                String(s.channel), CSVEncoder.field(s.band.label),
+                CSVEncoder.field(channelWidthLabel(s.channelWidthRaw)),
+                CSVEncoder.field(phyModeLabel(s.phyRaw)),
+                CSVEncoder.field(securityLabel(s.securityRaw)),
+                String(format: "%.0f", s.txRate), CSVEncoder.field(s.quality.label)
             ]
             rows.append(cols.joined(separator: ","))
         }
         return rows.joined(separator: "\n")
     }
 
-    private func csvEscape(_ input: String) -> String {
-        var s = input
-        // SSIDs and nicknames are untrusted text. Prevent spreadsheet apps from
-        // treating a leading character as a formula when the CSV is opened.
-        if let first = s.first, "=+-@\t\r".contains(first) { s = "'" + s }
-        guard s.contains(",") || s.contains("\"") || s.contains("\n") || s.contains("\r") else {
-            return s
-        }
-        return "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-    }
 }

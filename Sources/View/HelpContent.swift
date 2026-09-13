@@ -450,21 +450,23 @@ enum HelpContent {
         HelpTopic(
             term: "What this app does on a client network",
             category: .permissions,
-            short: "It listens. Two features transmit, both off until you switch them on.",
+            short: "It listens. Four features transmit, each only when you ask.",
             body: [
-                "By default the app only reads the state of the link this Mac has already joined, plus the IP settings this Mac was assigned. It captures no traffic, probes no other hosts, touches no credentials, and sends nothing off the machine.",
+                "By default the app only reads the state of the link this Mac has already joined, the IP settings this Mac was assigned, and the neighbour cache macOS already keeps. It captures no traffic, scans no ports, sweeps no addresses, touches no credentials, and sends nothing to the developer.",
                 "A nearby-network scan sends standard Wi-Fi probe requests. The scan starts only when you press the button.",
                 "The gateway test sends ICMP echo to your own default router and to nothing else. It is off by default.",
+                "Identify can ask devices on the network to describe themselves over Bonjour, and can look addresses up in this network's DNS. Each asks for confirmation first and says what it sends and where it may be logged.",
                 "The Diagnostics tab states all of this inside the app, so you can show it to whoever asks what you are running."
             ]
         ),
         HelpTopic(
             term: "Where your data is stored",
             category: .permissions,
-            short: "Access point nicknames and saved walkthroughs, on this Mac only.",
+            short: "Access point names, device labels and saved walkthroughs, on this Mac only.",
             body: [
-                "Both live in Application Support on this Mac. Nothing is uploaded, and there are no accounts or telemetry.",
-                "Access point names can identify client infrastructure. Saved walkthroughs can contain the same type of information. Delete individual records when an engagement ends."
+                "All three live in the app's sandbox container on this Mac. Nothing is uploaded, and there are no accounts or telemetry.",
+                "Device labels are written only for devices you have named, typed or annotated. A device you merely looked at leaves nothing on disk.",
+                "Access point names can identify client infrastructure, and device labels and saved walkthroughs can contain the same kind of information. Delete individual records when an engagement ends."
             ]
         )
     ]

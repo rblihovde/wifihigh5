@@ -15,9 +15,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-	<string>1.1</string>
+	<string>1.2</string>
     <key>CFBundleVersion</key>
-    <string>6</string>
+    <string>7</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>LSMinimumSystemVersion</key>
@@ -35,7 +35,7 @@
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>macOS classifies Wi-Fi network names as location data. Access is used only to read the SSID and BSSID of the network this Mac is already connected to. No location is recorded, stored or transmitted.</string>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>WifiHigh5 uses the local network only for features you switch on yourself: an optional echo to your own router to measure latency and packet loss, and an optional Identify request that asks devices on this network for the names they publish. Each one explains exactly what it sends before it sends anything. Everything else in the app reads only settings and caches this Mac already holds.</string>
+    <string>WifiHigh5 uses the local network only for features you switch on yourself: an optional echo to your own router to measure latency and packet loss, and Identify, which can ask devices on this network for the names they publish and look addresses up in the network's DNS. Identify says exactly what it will send before it sends anything. Everything else in the app reads only settings and caches this Mac already holds.</string>
     <!-- macOS returns nothing from a Bonjour browse unless the service
          types are declared here, so this list must stay in step with
          the one in DeviceDiscovery.swift. -->

@@ -49,10 +49,12 @@ final class APRegistry: ObservableObject {
         return base.appendingPathComponent("WifiHigh5", isDirectory: true)
     }()
 
-    init() {
-        fileURL = Self.folderURL.appendingPathComponent("access-points.json")
+    /// The folder can be overridden so tests never touch the real registry.
+    init(folder: URL? = nil) {
+        let base = folder ?? Self.folderURL
+        fileURL = base.appendingPathComponent("access-points.json")
         do {
-            try FileManager.default.createDirectory(at: Self.folderURL, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         } catch {
             canPersist = false
             persistenceError = "The local data folder could not be created: \(error.localizedDescription)"
@@ -85,7 +87,9 @@ final class APRegistry: ObservableObject {
 
     /// Palette slot for an AP, so exports can reproduce the on-screen colour.
     func colorIndexHint(for key: APKey) -> Int {
-        records[key.raw]?.colorOverride ?? key.colorIndex
+        guard let index = records[key.raw]?.colorOverride,
+              APPalette.colors.indices.contains(index) else { return key.colorIndex }
+        return index
     }
 
     var allRecords: [APRecord] {
@@ -162,7 +166,7 @@ final class APRegistry: ObservableObject {
             var loaded: [String: APRecord] = [:]
             for record in list {
                 if let existing = loaded[record.keyRaw], existing.lastSeen > record.lastSeen { continue }
-                loaded[record.keyRaw] = record
+                loaded[record.keyRaw] = Self.repaired(record)
             }
             records = loaded
         } catch {
@@ -216,13 +220,63 @@ final class APRegistry: ObservableObject {
         return try? enc.encode(Array(records.values))
     }
 
-    /// Merges an exported map in. Existing user-entered fields win, while empty
-    /// auto-created records are filled from the import.
-    @discardableResult
-    func importJSON(_ data: Data) -> Int? {
+    /// Decodes and checks an export without touching the registry, so it can
+    /// run away from the main thread and a rejected file changes nothing.
+    nonisolated static func decodeImport(_ data: Data) throws -> [APRecord] {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
-        guard let list = try? dec.decode([APRecord].self, from: data) else { return nil }
+        guard let list = try? dec.decode([APRecord].self, from: data) else {
+            throw ImportGuard.Failure.notAnExport
+        }
+        guard list.count <= ImportGuard.maxRecords else {
+            throw ImportGuard.Failure.tooManyRecords(list.count)
+        }
+        return list.compactMap(validatedImport)
+    }
+
+    /// One imported record, corrected where it can be and dropped where it
+    /// cannot. A file can hold any value its format allows, including ones
+    /// this app would never write.
+    nonisolated static func validatedImport(_ record: APRecord) -> APRecord? {
+        guard APKey.isWellFormed(record.keyRaw) else { return nil }
+        var r = repaired(record)
+        r.nickname = UntrustedText.clean(r.nickname, limit: ImportGuard.maxNameLength)
+        r.site = UntrustedText.clean(r.site, limit: ImportGuard.maxSiteLength)
+        r.notes = UntrustedText.clean(r.notes, limit: ImportGuard.maxNotesLength, allowNewlines: true)
+        r.lastSSID = r.lastSSID.map { UntrustedText.clean($0, limit: 64) }
+        return r
+    }
+
+    /// Values that are wrong whatever their source. Applied to what is read
+    /// back from disk as well, so a bad value saved before this check existed
+    /// cannot go on crashing a report.
+    nonisolated static func repaired(_ record: APRecord) -> APRecord {
+        var r = record
+        if let index = r.colorOverride, !APPalette.colors.indices.contains(index) {
+            r.colorOverride = nil
+        }
+        let plausible = -120...(-1)
+        if let v = r.bestRSSI, !plausible.contains(v) { r.bestRSSI = nil }
+        if let v = r.worstRSSI, !plausible.contains(v) { r.worstRSSI = nil }
+        if let c = r.lastChannel, !(1...233).contains(c) { r.lastChannel = nil }
+        let now = Date()
+        if r.firstSeen > now { r.firstSeen = now }
+        if r.lastSeen > now { r.lastSeen = now }
+        return r
+    }
+
+    /// Imports a file already read and decoded. Returns nil for a file that is
+    /// not an export.
+    @discardableResult
+    func importJSON(_ data: Data) -> Int? {
+        guard let list = try? Self.decodeImport(data) else { return nil }
+        return merge(list)
+    }
+
+    /// Merges checked records in. Existing user-entered fields win, while empty
+    /// auto-created records are filled from the import.
+    @discardableResult
+    func merge(_ list: [APRecord]) -> Int {
         var changed = 0
         for incoming in list {
             guard var existing = records[incoming.keyRaw] else {

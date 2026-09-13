@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Builds before 1.2 ran outside the sandbox and kept their data in the
+         user's own Library. On the first sandboxed launch macOS moves these
+         into the app's container, so access point names, device labels and
+         walkthroughs carry over instead of appearing to vanish. -->
+    <key>Move</key>
+    <array>
+        <string>${ApplicationSupport}/WifiHigh5</string>
+        <string>${Library}/Preferences/com.rblihovde.wifihigh5.plist</string>
+    </array>
+</dict>
+</plist>

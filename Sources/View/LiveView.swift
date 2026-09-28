@@ -83,7 +83,6 @@ struct LiveView: View {
                 }
 
                 HStack(spacing: 10) {
-                    legend
                     Spacer(minLength: 8)
                     Toggle("Noise floor", isOn: $showNoise)
                         .toggleStyle(.checkbox).controlSize(.mini)
@@ -107,7 +106,12 @@ struct LiveView: View {
                     sampleInterval: monitor.interval,
                     scale: scale,
                     animates: animatesChart,
-                    colorVersion: monitor.sessionAPKeys.map { registry.colorIndexHint(for: $0) }
+                    colorVersion: monitor.sessionAPKeys.map { registry.colorIndexHint(for: $0) },
+                    nameVersion: monitor.sessionAPKeys.map { key in
+                        let rec = registry.record(for: key)
+                        return registry.displayName(for: key, fallbackChannel: rec?.lastChannel,
+                                                    fallbackBand: rec?.lastBandRaw)
+                    }
                 )
                 .frame(height: chartHeight)
 
@@ -152,25 +156,6 @@ struct LiveView: View {
     private func clampedHeight(_ value: Double) -> Double {
         Swift.min(Swift.max(value, Self.chartHeightLimits.lowerBound),
                   Self.chartHeightLimits.upperBound)
-    }
-
-    /// Colour key for every AP seen this session, so the trace is readable.
-    private var legend: some View {
-        HStack(spacing: 10) {
-            ForEach(monitor.sessionAPKeys.prefix(5), id: \.raw) { key in
-                let rec = registry.record(for: key)
-                HStack(spacing: 4) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(registry.color(for: key)).frame(width: 8, height: 8)
-                    Text(registry.displayName(for: key,
-                                              fallbackChannel: rec?.lastChannel,
-                                              fallbackBand: rec?.lastBandRaw))
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-        }
     }
 }
 

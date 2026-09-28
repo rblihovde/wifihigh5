@@ -30,6 +30,8 @@ struct SignalChart: View {
     var animates: Bool = false
     /// The colour index of each access point in view, so a recolour redraws.
     var colorVersion: [Int] = []
+    /// The name of each access point in view, so a rename redraws its label.
+    var nameVersion: [String] = []
 
     @State private var hovered: WiFiSample?
 
@@ -92,7 +94,8 @@ struct SignalChart: View {
             showNoise: showNoise,
             showRate: showRate,
             sampleInterval: sampleInterval,
-            colors: colorVersion)
+            colors: colorVersion,
+            names: nameVersion)
     }
 
     var body: some View {
@@ -120,7 +123,7 @@ struct SignalChart: View {
                     }
                     .offset(x: -drift(at: context.date, m))
                 }
-                .clipShape(ColumnClip(minX: m.plot.minX, maxX: m.plot.maxX + 7))
+                .mask(alignment: .topLeading) { ContentMask(plot: m.plot) }
             }
             .contentShape(Rectangle())
             .onContinuousHover { phase in
@@ -197,16 +200,34 @@ private struct ContentSignature: Equatable {
     let showRate: Bool
     let sampleInterval: Double
     let colors: [Int]
+    let names: [String]
 }
 
-/// Clips the sliding content to the plot's width while leaving room above and
-/// below it for the connection markers and the time labels.
-private struct ColumnClip: Shape {
-    var minX: CGFloat
-    var maxX: CGFloat
+/// Holds the sliding content to the plot's width, leaving room above it for
+/// the connection markers. The time labels below get the full width instead,
+/// fading out at both ends, so a label entering or leaving the chart dissolves
+/// rather than being cut in half at the edge of the plot.
+private struct ContentMask: View {
+    var plot: CGRect
+    private static let fade: CGFloat = 28
 
-    func path(in rect: CGRect) -> Path {
-        Path(CGRect(x: minX, y: rect.minY, width: maxX - minX, height: rect.height))
+    var body: some View {
+        Canvas { ctx, size in
+            ctx.fill(Path(CGRect(x: plot.minX, y: 0, width: plot.width + 7, height: plot.maxY)),
+                     with: .color(.black))
+            let footer = CGRect(x: plot.minX - Self.fade, y: plot.maxY,
+                                width: size.width - plot.minX + Self.fade,
+                                height: Swift.max(0, size.height - plot.maxY))
+            guard footer.width > Self.fade * 2 else { return }
+            let edge = Self.fade / footer.width
+            ctx.fill(Path(footer), with: .linearGradient(
+                Gradient(stops: [.init(color: .clear, location: 0),
+                                 .init(color: .black, location: edge),
+                                 .init(color: .black, location: 1 - edge),
+                                 .init(color: .clear, location: 1)]),
+                startPoint: CGPoint(x: footer.minX, y: 0),
+                endPoint: CGPoint(x: footer.maxX, y: 0)))
+        }
     }
 }
 
@@ -251,9 +272,10 @@ private struct ChartFrame: View, Equatable {
             let rect = CGRect(x: m.plot.minX, y: top, width: m.plot.width, height: bottom - top)
             ctx.fill(Path(rect), with: .color(q.color.opacity(0.07)))
 
-            // Zoomed in, the named bands are what stop a one-decibel wiggle from
-            // reading as a real change in the connection.
-            if scale.isZoomed, rect.height > 16 {
+            // The bands are labelled at every scale, so their meaning does not
+            // rest on colour alone. Zoomed in, the names are also what stop a
+            // one-decibel wiggle from reading as a real change in the connection.
+            if rect.height > 16 {
                 let label = Text(q.label)
                     .font(.system(size: 8.5, weight: .medium))
                     .foregroundStyle(q.color.opacity(0.75))
@@ -261,7 +283,6 @@ private struct ChartFrame: View, Equatable {
                          anchor: .leading)
             }
         }
-        ctx.stroke(Path(m.plot), with: .color(.gray.opacity(0.25)), lineWidth: 1)
     }
 
     private func drawGrid(_ ctx: GraphicsContext) {
@@ -306,12 +327,14 @@ private struct ChartContent: View, Equatable {
     var body: some View {
         Canvas { ctx, _ in
             let ticks = timeTicks()
+            let runs = segments()
             drawTimeGrid(ctx, ticks)
             drawGaps(ctx)
             drawRoamMarkers(ctx)
             if showRate { drawRateTrace(ctx) }
             if showNoise { drawNoiseTrace(ctx) }
-            drawSignalTrace(ctx)
+            drawSignalTrace(ctx, runs)
+            drawRunLabels(ctx, runs)
             drawWaypoints(ctx)
             drawLiveDot(ctx)
             drawTimeAxis(ctx, ticks)
@@ -474,24 +497,54 @@ private struct ChartContent: View, Equatable {
 
     // MARK: Traces
 
-    private func drawSignalTrace(_ ctx: GraphicsContext) {
+    private func drawSignalTrace(_ ctx: GraphicsContext, _ runs: [(key: APKey, points: [WiFiSample])]) {
         let m = mapping
-        for seg in segments() {
+        for seg in runs {
             guard !seg.points.isEmpty else { continue }
             let color = registry.color(for: seg.key)
             let pts = thinned(seg.points.map { CGPoint(x: m.x($0.time), y: m.y(Double($0.rssi))) })
 
-            // Soft fill beneath the run.
-            var fill = smoothPath(through: pts, startingAt: CGPoint(x: pts[0].x, y: m.plot.maxY))
-            fill.addLine(to: CGPoint(x: pts[pts.count - 1].x, y: m.plot.maxY))
-            fill.closeSubpath()
-            ctx.fill(fill, with: .linearGradient(
-                Gradient(colors: [color.opacity(0.30), color.opacity(0.02)]),
-                startPoint: CGPoint(x: 0, y: m.plot.minY),
-                endPoint: CGPoint(x: 0, y: m.plot.maxY)))
-
+            // No fill beneath the line. dBm has no zero, and the bottom of the
+            // plot moves with the scale, so the area under the trace would show
+            // the zoom setting rather than the signal.
             ctx.stroke(smoothPath(through: pts), with: .color(color),
                        style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+        }
+    }
+
+    /// Names each run of the trace at its right-hand end, in the run's colour,
+    /// so the colours need no key. The last run is named at the live dot. A
+    /// name that would overlap the one after it is left out; the hover readout
+    /// still names every reading.
+    private func drawRunLabels(_ ctx: GraphicsContext, _ runs: [(key: APKey, points: [WiFiSample])]) {
+        let m = mapping
+        var nextLabelStart: CGFloat = .greatestFiniteMagnitude
+        for seg in runs.reversed() {
+            guard let end = seg.points.last else { continue }
+            let first = seg.points.first ?? end
+            let name = registry.displayName(for: seg.key, fallbackChannel: end.channel,
+                                            fallbackBand: end.bandRaw)
+            let label = ctx.resolve(Text(name).font(.system(size: 9, weight: .medium))
+                .foregroundStyle(registry.color(for: seg.key)))
+            let width = label.measure(in: CGSize(width: 200, height: 20)).width
+            let at = CGPoint(x: m.x(end.time), y: m.y(Double(end.rssi)))
+            let right = at.x - 7
+            let left = right - width
+            // Skip a name that would overrun its own run by much, or the next name.
+            guard left >= m.x(first.time) - width / 2, right < nextLabelStart - 6 else { continue }
+            // Clear of every reading under the name: above the highest, or
+            // below the lowest when above would leave the plot.
+            var high = at.y, low = at.y
+            for s in seg.points.reversed() {
+                let px = m.x(s.time)
+                if px < left - 2 { break }
+                let py = m.y(Double(s.rssi))
+                high = Swift.min(high, py)
+                low = Swift.max(low, py)
+            }
+            let y = high - 8 < m.plot.minY + 6 ? low + 9 : high - 8
+            ctx.draw(label, at: CGPoint(x: right, y: y), anchor: .trailing)
+            nextLabelStart = left
         }
     }
 
@@ -522,22 +575,53 @@ private struct ChartContent: View, Equatable {
             clipped.stroke(p, with: .color(.secondary.opacity(0.65)),
                            style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
         }
+        // Named on the line itself, so the dashes need no legend.
+        if let last = runs.last?.last {
+            let at = CGPoint(x: m.x(last.0), y: m.y(Double(last.1)))
+            if at.y > m.plot.minY + 10, at.y < m.plot.maxY - 4 {
+                let t = Text("Noise \(last.1) dBm").font(.system(size: 8.5)).foregroundStyle(.secondary)
+                clipped.draw(clipped.resolve(t), at: CGPoint(x: at.x - 4, y: at.y - 7), anchor: .trailing)
+            }
+        }
     }
 
     /// Transmit rate on its own implicit scale, for spotting a rate collapse.
     /// It stays straight: rates step between fixed values, and a curve would
-    /// imply rates in between.
+    /// imply rates in between. The scale has no axis, so the line carries its
+    /// own labels: the top of the scale and the latest rate.
     private func drawRateTrace(_ ctx: GraphicsContext) {
         let m = mapping
         guard samples.count > 1 else { return }
         let maxRate = Swift.max(samples.map(\.txRate).max() ?? 1, 1)
+        func point(_ s: WiFiSample) -> CGPoint {
+            CGPoint(x: m.x(s.time),
+                    y: m.plot.maxY - m.plot.height * CGFloat(s.txRate / maxRate) * 0.92)
+        }
+        // Broken at sampling gaps, like the other traces.
         var p = Path()
-        p.addLines(samples.map {
-            CGPoint(x: m.x($0.time),
-                    y: m.plot.maxY - m.plot.height * CGFloat($0.txRate / maxRate) * 0.92)
-        })
-        ctx.stroke(p, with: .color(.purple.opacity(0.5)),
-                   style: StrokeStyle(lineWidth: 1.2, dash: [5, 2]))
+        var previous: WiFiSample?
+        for s in samples {
+            if let prev = previous, !isGap(prev, s) {
+                p.addLine(to: point(s))
+            } else {
+                p.move(to: point(s))
+            }
+            previous = s
+        }
+        let tint = Color.purple.opacity(0.6)
+        ctx.stroke(p, with: .color(tint), style: StrokeStyle(lineWidth: 1.2, dash: [5, 2]))
+
+        // At the live end, which stays in view as the chart slides, and above
+        // the rate line: the rate sits in the top of the plot, and a label
+        // below it runs into the signal trace on a zoomed scale.
+        if let last = samples.last {
+            let words = last.txRate < maxRate
+                ? "TX \(Fmt.rate(last.txRate)), peak \(Fmt.rate(maxRate))"
+                : "TX \(Fmt.rate(last.txRate)), the peak"
+            let label = Text(words).font(.system(size: 8.5)).foregroundStyle(tint)
+            let at = point(last)
+            ctx.draw(ctx.resolve(label), at: CGPoint(x: at.x - 4, y: at.y - 7), anchor: .trailing)
+        }
     }
 
     // MARK: Markers
@@ -654,7 +738,6 @@ private struct HoverMarker: View, Equatable {
         .padding(8)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.hairline, lineWidth: 1))
-        .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
         .frame(width: 156)
         // Flip to the left of the cursor near the right edge so it stays visible.
         .offset(x: Swift.min(px + 12, mapping.plot.maxX - 160), y: mapping.plot.minY + 6)

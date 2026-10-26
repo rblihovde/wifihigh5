@@ -891,6 +891,12 @@ private struct DeviceDetailsView: View {
             ("Manufacturer", device.vendorText),
             ("Status", device.isPresent ? "Present" : "No longer in cache")
         ]
+        if let block = device.vendorBlock {
+            if let country = block.countryName {
+                values.insert(("Registrant country", country), at: values.count - 1)
+            }
+            values.insert(("Registered block", block.summary), at: values.count - 1)
+        }
         if device.category != .unlabelled { values.append(("Your type", device.category.label)) }
         if let guess = device.guess {
             values.append(("Suggested type", guess.summary))

@@ -9,6 +9,8 @@ struct ObservedDevice: Identifiable {
     var role: DeviceRole
     var record: DeviceRecord?
     var vendor: VendorResult
+    /// The registered block behind `vendor`, with its country and registry.
+    var vendorBlock: VendorBlock? = nil
     var sighting: DevicePresence.Sighting?
     var isLocallyAdministered: Bool
     /// False for a device seen earlier in this session that has since dropped

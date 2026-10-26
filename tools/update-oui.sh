@@ -14,8 +14,9 @@ echo "==> Downloading IEEE registries"
 curl -fsSL --max-time 180 -o "$WORK/oui.csv"   "https://standards-oui.ieee.org/oui/oui.csv"
 curl -fsSL --max-time 180 -o "$WORK/mam.csv"   "https://standards-oui.ieee.org/oui28/mam.csv"
 curl -fsSL --max-time 180 -o "$WORK/oui36.csv" "https://standards-oui.ieee.org/oui36/oui36.csv"
+curl -fsSL --max-time 180 -o "$WORK/iab.csv"   "https://standards-oui.ieee.org/iab/iab.csv"
 
-for f in oui.csv mam.csv oui36.csv; do
+for f in oui.csv mam.csv oui36.csv iab.csv; do
     lines=$(wc -l < "$WORK/$f")
     if [ "$lines" -lt 1000 ]; then
         echo "!! $f looks truncated ($lines lines); aborting rather than shipping bad data" >&2
@@ -24,5 +25,5 @@ for f in oui.csv mam.csv oui36.csv; do
 done
 
 echo "==> Building Resources/OUI.txt"
-python3 tools/build-oui.py "$WORK/oui.csv" "$WORK/mam.csv" "$WORK/oui36.csv" Resources/OUI.txt
+python3 tools/build-oui.py "$WORK/oui.csv" "$WORK/mam.csv" "$WORK/oui36.csv" "$WORK/iab.csv" Resources/OUI.txt
 echo "==> Done. Rebuild the app to embed the new database."

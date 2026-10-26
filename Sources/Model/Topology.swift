@@ -222,6 +222,14 @@ enum TopologyBuilder {
                                         tint: .orange, confidence: .inferred,
                                         source: "Bundled IEEE assignment database"))
             }
+            if let block = vendors.block(for: mac) {
+                if let country = block.countryName {
+                    routerFacts.append(Fact(label: "Vendor country", value: country, detail: .full,
+                                            source: "Registrant address in the IEEE database"))
+                }
+                routerFacts.append(Fact(label: "Vendor block", value: block.summary, detail: .full,
+                                        source: "Bundled IEEE assignment database"))
+            }
             let entry = ARPEntry(ip: gatewayIP ?? "", mac: mac)
             routerFacts.append(Fact(label: "Vendor prefix", value: entry.oui, detail: .full))
             if entry.isLocallyAdministered {
@@ -321,6 +329,14 @@ enum TopologyBuilder {
                     apFacts.append(Fact(label: "Vendor", value: name, detail: .primary,
                                         confidence: .inferred,
                                         source: "Bundled IEEE assignment database"))
+                    if let block = vendors.block(for: bssid) {
+                        if let country = block.countryName {
+                            apFacts.append(Fact(label: "Vendor country", value: country, detail: .full,
+                                                source: "Registrant address in the IEEE database"))
+                        }
+                        apFacts.append(Fact(label: "Vendor block", value: block.summary, detail: .full,
+                                            source: "Bundled IEEE assignment database"))
+                    }
                 } else if let label = vendor.displayName {
                     apFacts.append(Fact(label: "Vendor", value: label, detail: .secondary,
                                         tint: .orange, confidence: .inferred,

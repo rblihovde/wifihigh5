@@ -1478,7 +1478,7 @@ private func testVendorLookup(databaseURL: URL) {
         RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
     }
     expect("database loaded", db.isReady)
-    expect("database has a realistic number of blocks", db.recordCount > 40_000)
+    expect("database has a realistic number of blocks", db.recordCount > 55_000)
 
     expectEqual("resolves a registered vendor", db.lookup("00:00:0c:11:22:33"), .known("Cisco Systems, Inc"))
     expectEqual("resolves an Apple address", db.lookup("00:1b:63:11:22:33"), .known("Apple, Inc"))
@@ -1507,6 +1507,19 @@ private func testVendorLookup(databaseURL: URL) {
     expectEqual("nil input", db.lookup(nil), .unregistered)
 
     expectEqual("vendor prefix extracted", db.prefix(of: "00:00:0c:11:22:33"), "00:00:0c")
+
+    let apple = db.block(for: "00:1b:63:11:22:33")
+    expectEqual("a block carries its registrant country", apple?.countryCode, "US")
+    expectEqual("a 24-bit block is MA-L", apple?.registry, "MA-L")
+    expectEqual("the block prefix is formatted as octets", apple?.prefix, "00:1B:63")
+    let legacy = db.block(for: "00:50:c2:00:01:23")
+    expectEqual("legacy IAB blocks are included", legacy?.registry, "IAB")
+    expectEqual("an IAB block is 36 bits", legacy?.prefixBits, 36)
+    expectEqual("an IAB prefix keeps its half octet", legacy?.prefix, "00:50:C2:00:0")
+    expect("the IAB holder outranks the shared MA-L block",
+           legacy?.organisation != nil && db.lookup("00:50:c2:00:01:23") == .known(legacy!.organisation))
+    expect("a randomised address has no block", db.block(for: "02:00:00:00:00:01") == nil)
+    expect("a malformed address has no block", db.block(for: "zz:zz:zz:00:00:00") == nil)
 }
 
 // MARK: Hover help lookup

@@ -100,6 +100,7 @@ enum ObservedDeviceBuilder {
             role: role,
             record: hasMAC ? labels.record(forMAC: mac) : nil,
             vendor: vendor,
+            vendorBlock: hasMAC ? vendors.block(for: mac) : nil,
             sighting: sighting,
             isLocallyAdministered: locallyAdministered,
             isPresent: isPresent,

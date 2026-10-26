@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 struct AccessPointsView: View {
     @EnvironmentObject var registry: APRegistry
     @EnvironmentObject var monitor: WiFiMonitor
+    @EnvironmentObject var vendors: VendorDatabase
 
     @State private var search = ""
     @State private var editingKey: APKey?
@@ -17,12 +18,15 @@ struct AccessPointsView: View {
         let all = registry.allRecords
         guard !search.isEmpty else { return all }
         let q = search.lowercased()
-        return all.filter {
-            $0.nickname.lowercased().contains(q)
-            || $0.site.lowercased().contains(q)
-            || ($0.lastSSID ?? "").lowercased().contains(q)
-            || $0.keyRaw.lowercased().contains(q)
-            || $0.notes.lowercased().contains(q)
+        return all.filter { record in
+            let identity = profile(for: record)
+            return record.nickname.lowercased().contains(q)
+            || record.site.lowercased().contains(q)
+            || (record.lastSSID ?? "").lowercased().contains(q)
+            || record.keyRaw.lowercased().contains(q)
+            || record.notes.lowercased().contains(q)
+            || identity.manufacturer.lowercased().contains(q)
+            || identity.kind.lowercased().contains(q)
         }
     }
 
@@ -74,7 +78,7 @@ struct AccessPointsView: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary).font(.system(size: 11))
-            TextField("Search nicknames, sites, SSIDs, BSSIDs", text: $search)
+            TextField("Search names, SSIDs, BSSIDs, makers, or types", text: $search)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
             Spacer()
@@ -98,9 +102,10 @@ struct AccessPointsView: View {
     private func row(_ rec: APRecord) -> some View {
         let key = rec.key
         let isCurrent = monitor.currentKeyValue == key
+        let identity = profile(for: rec)
         return HStack(spacing: 10) {
             RoundedRectangle(cornerRadius: 4)
-                .fill(rec.color).frame(width: 12, height: 34)
+                .fill(rec.color).frame(width: 12, height: 52)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -125,6 +130,25 @@ struct AccessPointsView: View {
                         Text("Ch \(ch) · \(bandLabel(rec.lastBandRaw ?? 0).short)")
                             .font(.system(size: 10)).foregroundStyle(.secondary)
                     }
+                }
+                HStack(spacing: 5) {
+                    Image(systemName: "wifi.router")
+                        .foregroundStyle(.secondary)
+                    Text(identity.kind)
+                        .fontWeight(.medium)
+                        .help(identity.kindDetail)
+                    Text("·").foregroundStyle(.tertiary)
+                    Text(identity.manufacturer)
+                        .help(identity.manufacturerDetail)
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                if !radioSummary(for: rec).isEmpty {
+                    Text(radioSummary(for: rec))
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(Color.subtle)
+                        .lineLimit(1)
                 }
             }
 
@@ -163,6 +187,25 @@ struct AccessPointsView: View {
             NicknameEditor(key: key, sample: isCurrent ? monitor.current : nil)
                 .environmentObject(registry)
         }
+    }
+
+    private func profile(for record: APRecord) -> AccessPointProfile {
+        let bssid = record.key.bssidValue
+        return AccessPointProfile.identify(
+            bssid: bssid,
+            ssid: record.lastSSID,
+            securityRaw: record.lastSecurityRaw,
+            vendor: vendors.lookup(bssid)
+        )
+    }
+
+    private func radioSummary(for record: APRecord) -> String {
+        var facts: [String] = []
+        if let security = record.lastSecurityRaw { facts.append(securityLabel(security)) }
+        if let phy = record.lastPHYRaw { facts.append(phyModeLabel(phy)) }
+        if let width = record.lastChannelWidthRaw { facts.append(channelWidthLabel(width)) }
+        if let country = record.lastCountryCode { facts.append("Country \(country)") }
+        return facts.joined(separator: " · ")
     }
 
     // MARK: Import / export

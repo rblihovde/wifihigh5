@@ -19,8 +19,17 @@ struct ObservedDevice: Identifiable {
     var guess: DeviceGuess?
     /// What the device said about itself, if the user chose to ask.
     var finding: DeviceFinding?
+    /// Additional IPv6 addresses associated with the same hardware address.
+    var ipv6Addresses: [String] = []
+    /// Used for hosts outside the local neighbour table, where no MAC exists.
+    var identityKey: String? = nil
 
-    var id: String { mac }
+    var id: String { identityKey ?? mac }
+    var hasHardwareAddress: Bool { DeviceRegistry.isValidMAC(mac) }
+
+    var addressSummary: String {
+        ([ip] + ipv6Addresses.filter { $0 != ip }).joined(separator: "\n")
+    }
 
     var category: DeviceCategory { record?.category ?? .unlabelled }
 
@@ -43,6 +52,15 @@ struct ObservedDevice: Identifiable {
     /// True when anything in this row came from asking rather than watching.
     var wasDiscovered: Bool { finding?.isEmpty == false }
 
+    var wasActivelyScanned: Bool { finding?.scanObservedAt != nil }
+
+    var openPortSummary: String? {
+        guard let ports = finding?.openPorts, !ports.isEmpty else { return nil }
+        return ports.sorted().map { port in
+            "\(LANScanner.serviceName(for: port)) \(port)"
+        }.joined(separator: ", ")
+    }
+
     var symbol: String {
         if role != .device { return role.symbol }
         if category != .unlabelled { return category.symbol }
@@ -56,6 +74,7 @@ struct ObservedDevice: Identifiable {
     }
 
     var vendorText: String {
+        guard hasHardwareAddress else { return "Not available outside local link" }
         switch vendor {
         case .known(let name): return name
         case .randomised:      return "Not available for private addresses"
@@ -74,8 +93,12 @@ struct ObservedDevice: Identifiable {
             terms.append(finding.advertisedName ?? "")
             terms.append(finding.model ?? "")
             terms.append(finding.hostname ?? "")
+            terms.append(finding.smbName ?? "")
+            terms.append(finding.smbDomain ?? "")
             terms.append(contentsOf: finding.services)
+            terms.append(contentsOf: finding.openPorts.map(String.init))
         }
+        terms.append(contentsOf: ipv6Addresses)
         return terms.joined(separator: " ")
     }
 }

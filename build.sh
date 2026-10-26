@@ -42,6 +42,7 @@ swiftc \
     -framework CoreWLAN \
     -framework CoreLocation \
     -framework SystemConfiguration \
+    -framework Network \
     -o "${STAGING_BUNDLE}/Contents/MacOS/${BINARY}" \
     "${SOURCE_FILES[@]}"
 
@@ -60,17 +61,20 @@ fi
 cp Resources/container-migration.plist "${STAGING_BUNDLE}/Contents/Resources/container-migration.plist"
 printf 'APPL????' > "${STAGING_BUNDLE}/Contents/PkgInfo"
 
+echo "==> Finalizing bundle"
+rm -rf "${BUNDLE}"
+mv "${STAGING_BUNDLE}" "${BUNDLE}"
+
+# Sign at the bundle's final path. Some macOS filesystems attach provenance
+# metadata while moving a newly created app into place; final-path signing
+# ensures the artifact we hand off is exactly the artifact that was verified.
 echo "==> Signing as: ${IDENTITY}"
 SIGN_ARGS=(--force --sign "${IDENTITY}" --options runtime
            --entitlements Resources/WifiHigh5.entitlements)
 if [ "${IDENTITY}" != "-" ]; then SIGN_ARGS+=(--timestamp); fi
-codesign "${SIGN_ARGS[@]}" "${STAGING_BUNDLE}"
+codesign "${SIGN_ARGS[@]}" "${BUNDLE}"
 
-codesign --verify --strict --verbose=2 "${STAGING_BUNDLE}" 2>&1 | sed 's/^/    /'
-
-echo "==> Installing verified build"
-rm -rf "${BUNDLE}"
-mv "${STAGING_BUNDLE}" "${BUNDLE}"
+codesign --verify --deep --strict --verbose=2 "${BUNDLE}" 2>&1 | sed 's/^/    /'
 
 # The Location Services grant is bound to the installed bundle's path, so the
 # app is installed to a stable location rather than run out of ./build. Set

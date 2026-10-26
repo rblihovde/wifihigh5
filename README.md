@@ -21,9 +21,10 @@ see the reading at that time. Optional overlays show noise and transmit rate.
 labels each item as measured, inferred, or unobserved. The map does not claim to
 be a complete network inventory. Pan, zoom, or select a node to inspect its data.
 
-**Observed Devices** lists IPv4 devices already present in the Mac's ARP cache.
-It is passive and sends no packets. Quiet, isolated, and IPv6-only devices may
-be absent.
+**Observed Devices** passively combines IPv4 ARP and IPv6 neighbour caches.
+An optional, confirmed scan can find quiet IPv4 devices, scan the detected
+subnet or a custom range, check common or custom TCP ports, and resolve DNS,
+Bonjour and Windows/SMB names.
 
 **Access Points** lists each AP that served the connection. Search the list or
 add a nickname, site, colour, and notes.
@@ -89,6 +90,15 @@ and multicast addresses.
 The app identifies hardware vendors with an embedded copy of the IEEE MAC
 registry. Vendor results also support the single-device inference.
 
+The **Access Points** and **Nearby Networks** screens use that same BSSID lookup
+to show the registered manufacturer. They also show a cautiously worded AP
+category (for example managed AP, mesh node, gateway, extender, or hotspot)
+when the manufacturer, enterprise security mode, or network name provides a
+useful clue. Because a BSSID can belong to a radio-board maker and network names
+are editable, these categories are labelled as inferences rather than models.
+Saved access points retain the last observed security mode, Wi-Fi generation,
+channel width, and country code.
+
 The app does not download the database at runtime. To update the embedded copy,
 run:
 
@@ -103,10 +113,21 @@ blocks. Vendor lookup uses the longest matching prefix.
 The app does not assign a vendor to a randomized address. It reports that the
 address was assigned by software.
 
-"Observed Devices" comes from the Mac's ARP cache. The app limits results to the
-active Wi-Fi interface and local subnet. The list is not a network inventory.
-It can omit quiet, isolated, or IPv6-only hosts. The app does not probe these
-addresses.
+"Observed Devices" starts with the Mac's IPv4 ARP and IPv6 neighbour caches on
+the active interface. By default the list is passive and can omit quiet or
+isolated hosts. **Scan LAN** is an explicit opt-in active pass. Find Devices uses
+ICMP and a fallback TCP connection; Full Scan checks the TCP ports you select,
+browses Bonjour, requests reverse DNS, and can ask Windows devices for their
+NetBIOS computer and domain names. A scan can cover the detected subnet, one
+address, an explicit start/end range, or CIDR. Address production is streamed,
+so there is no fixed range-size cap, though very large scans can take days.
+Full Scan can also send one link-local IPv6 all-nodes echo and then read the
+IPv6 neighbors macOS learned; it never attempts to enumerate the IPv6 address
+space.
+
+The **Columns** menu shows or hides addresses, MAC, manufacturer, services, and
+seen status. These choices persist locally, while search continues to cover
+hidden fields.
 
 Each row is given a role from settings the Mac already holds: the gateway it was
 told to use, the DHCP and DNS servers in its lease, and the BSSID it is
@@ -163,10 +184,11 @@ line across missing readings.
 
 ## Safe to run onsite
 
-The app reads the current Wi-Fi link and assigned IP settings. It does not
-capture traffic, probe other hosts, access credentials, or send telemetry.
+By default the app only reads the current Wi-Fi link, assigned IP settings and
+local system caches. It never captures traffic, accesses credentials or sends
+telemetry.
 
-Four optional features transmit. All are off until you turn them on:
+Optional features transmit only after you turn them on:
 
 - **Scan Now** sends standard Wi-Fi probe requests.
 - **Gateway ping** sends one ICMP echo per second to your own default router.
@@ -174,11 +196,21 @@ Four optional features transmit. All are off until you turn them on:
   local subnet and asks whatever answers to describe itself.
 - **Identify ▸ Look Up Names in DNS** sends one reverse lookup per address to
   the name servers this network gave the Mac.
+- **Scan LAN** sends TCP connection attempts to usable IPv4 addresses
+  in the range you choose, plus ICMP echo. Full Scan can check selected TCP
+  ports, browse Bonjour, look up DNS, and request NetBIOS/SMB identity.
+- **Speed Test** measures latency, jitter, download and upload against
+  Cloudflare's nearest edge. It adapts transfer size and stops early on slower
+  links, with a maximum of about 120 MB. Uploads are generated zero-filled test
+  bytes, never files, network names, labels or walkthroughs. Cloudflare can see
+  the public IP and normal request metadata. It measures the Mac's current
+  Internet path, so an active VPN or proxy is included; it is not the raw Wi-Fi
+  radio link rate.
 
-The last two each show a dialog before anything is sent, saying what is
+The Identify actions and Scan LAN show a dialog before anything is sent, saying what is
 transmitted, what comes back, where it will be logged afterwards, and what the
 feature is for. Cancel is the default button. Rows carrying anything obtained
-that way are marked `ASKED`, and exports record which rows those were.
+that way are marked `SCANNED` or `ASKED`, and exports record which rows those were.
 
 Both the direct download and the App Store build run in the macOS App Sandbox,
 with the same narrow set of capabilities: outgoing connections, files you choose
@@ -190,9 +222,11 @@ written itself corrected or dropped. CSV exports neutralise any cell that a
 spreadsheet would read as a formula, since several columns carry names that
 devices on the network chose.
 
-The app does not scan ports, sweep addresses, or capture traffic, and it cannot
-see traffic between two other devices: Wi-Fi delivers frames only to the client
-they are addressed to, and each client holds a different key.
+The app does not capture traffic, send credentials, fetch pages, or probe for
+vulnerabilities. A custom range can extend beyond the local subnet only when
+you enter it and confirm the scan. The app cannot see
+traffic between two other devices: Wi-Fi delivers frames only to the client they
+are addressed to, and each client holds a different key.
 
 The Diagnostics tab describes all of this in the app.
 

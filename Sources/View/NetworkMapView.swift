@@ -187,6 +187,7 @@ struct NetworkMapView: View {
             map: map,
             devices: ObservedDeviceBuilder.rows(
                 arp: netInfo.arpEntries,
+                ipv6: netInfo.ipv6Neighbors,
                 config: netInfo.config,
                 interface: monitor.current?.interfaceName ?? netInfo.config.primaryInterface,
                 bssid: monitor.current?.bssid,

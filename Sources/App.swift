@@ -32,6 +32,7 @@ struct WifiHigh5App: App {
     @StateObject private var devices = DeviceRegistry()
     @StateObject private var presence = DevicePresence()
     @StateObject private var discovery = DeviceDiscovery()
+    @StateObject private var speedTester = InternetSpeedTester()
     @State private var confirmClearSession = false
 
     init() {
@@ -55,6 +56,7 @@ struct WifiHigh5App: App {
                 .environmentObject(devices)
                 .environmentObject(presence)
                 .environmentObject(discovery)
+                .environmentObject(speedTester)
                 .frame(minWidth: 940, minHeight: 620)
                 .task {
                     appDelegate.onTerminate = {

@@ -229,16 +229,19 @@ enum ReportBuilder {
     static func deviceCSV(_ devices: [ObservedDevice], networkName: String?) -> String {
         let stamp = ISO8601DateFormatter()
         let asked = devices.contains(where: \.wasDiscovered)
+        let scanned = devices.contains(where: \.wasActivelyScanned)
 
         var lines = ["# WifiHigh5 observed devices"]
         lines.append("# Network,\(CSVEncoder.field(networkName ?? "Not available"))")
         lines.append("# Exported,\(stamp.string(from: Date()))")
-        lines.append("# Source,Passive read of this Mac's neighbour cache. No address was scanned or swept.")
+        lines.append(scanned
+            ? "# Source,IPv4 and IPv6 neighbour caches plus an operator-approved active IPv4 range scan and optional TCP service checks."
+            : "# Source,Passive read of this Mac's neighbour caches (IPv4 and IPv6). No address was scanned or swept.")
         lines.append(asked
-            ? "# Discovery,Some rows include names the devices published or DNS supplied, at the operator's request. Those rows are marked Asked."
+            ? "# Discovery,Some rows include operator-requested active findings such as published names DNS names response time or common TCP services."
             : "# Discovery,None. Nothing was asked of any device.")
         lines.append("# Suggested Type,Inferred from the manufacturer only, never measured.")
-        lines.append("Name,Role,Type,Suggested Type,IP Address,MAC Address,Address Type,Manufacturer,Advertised Name,Model,Services,DNS Name,Asked,Status,First Seen,Last Seen,Notes")
+        lines.append("Name,Role,Type,Suggested Type,Primary IP Address,IPv6 Addresses,MAC Address,Address Type,Manufacturer,Advertised Name,Model,Services,DNS Name,SMB Name,SMB Domain,Open TCP Ports,ICMP Ping ms,Fastest Response ms,Last Active Scan,Last Active Response,Asked,Status,First Seen,Last Seen,Notes")
 
         for device in devices {
             lines.append([
@@ -247,13 +250,23 @@ enum ReportBuilder {
                 CSVEncoder.field(device.category == .unlabelled ? "" : device.category.label),
                 CSVEncoder.field(device.category == .unlabelled ? (device.guess?.summary ?? "") : ""),
                 CSVEncoder.field(device.ip),
-                CSVEncoder.field(device.mac),
-                CSVEncoder.field(device.isLocallyAdministered ? "Private or virtual" : "Hardware"),
+                CSVEncoder.field(device.ipv6Addresses.joined(separator: "; ")),
+                CSVEncoder.field(device.hasHardwareAddress ? device.mac : ""),
+                CSVEncoder.field(device.hasHardwareAddress
+                    ? (device.isLocallyAdministered ? "Private or virtual" : "Hardware")
+                    : "Not available"),
                 CSVEncoder.field(device.vendorText),
                 CSVEncoder.field(device.finding?.advertisedName ?? ""),
                 CSVEncoder.field(device.finding?.model ?? ""),
                 CSVEncoder.field(device.finding.map { $0.services.sorted().joined(separator: "; ") } ?? ""),
                 CSVEncoder.field(device.finding?.hostname ?? ""),
+                CSVEncoder.field(device.finding?.smbName ?? ""),
+                CSVEncoder.field(device.finding?.smbDomain ?? ""),
+                CSVEncoder.field(device.finding?.openPorts.sorted().map(String.init).joined(separator: "; ") ?? ""),
+                CSVEncoder.field(device.finding?.pingTimeMS.map { String(format: "%.1f", $0) } ?? ""),
+                CSVEncoder.field(device.finding?.responseTimeMS.map { String(format: "%.1f", $0) } ?? ""),
+                CSVEncoder.field(device.finding?.scanObservedAt.map { stamp.string(from: $0) } ?? ""),
+                CSVEncoder.field(device.finding?.lastRespondedAt.map { stamp.string(from: $0) } ?? ""),
                 CSVEncoder.field(device.wasDiscovered ? "Asked" : "No"),
                 CSVEncoder.field(status(device)),
                 CSVEncoder.field(device.sighting.map { stamp.string(from: $0.firstSeen) } ?? ""),

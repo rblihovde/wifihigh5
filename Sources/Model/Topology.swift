@@ -518,7 +518,7 @@ enum TopologyBuilder {
                      observedAt: arpObservedAt, staleAfter: 15),
                 Fact(label: "Showing", value: "\(shown) of \(neighbours.count)", detail: .secondary),
                 Fact(label: "Scope", value: "IPv4 · \(activeInterface ?? "active interface") · local subnet", detail: .secondary),
-                Fact(label: "How", value: "Read from this Mac's own ARP cache on the active Wi-Fi subnet. These entries came from earlier traffic; the app did not sweep or probe the network.", detail: .secondary, inspectorOnly: true)
+                Fact(label: "How", value: "Read from this Mac's ARP cache on the active Wi-Fi subnet. Entries normally come from earlier traffic; an operator-approved LAN scan can also populate this cache.", detail: .secondary, inspectorOnly: true)
             ]
             for n in neighbours.prefix(shown) {
                 let vendor = vendors.lookup(n.mac)

@@ -256,7 +256,8 @@ enum HelpContent {
                 "The map runs from this Mac at the bottom, through the access point serving it, to the Wi-Fi subnet's router and then to an explicitly untested upstream. It is the current Wi-Fi path plus local evidence, not a complete network inventory. Zoom in to reveal more, click a node to see all of its facts and sources, or use Jump To when the drawing is large.",
                 "If a VPN, Ethernet adapter or another service owns the Mac's default route, the map calls that out. It continues to show the local Wi-Fi path for onsite diagnosis without claiming that all Internet traffic follows it.",
                 "Line style identifies measured, inferred, and unobserved connections. The map includes an unobserved segment when this Mac cannot read part of the path.",
-                "Facts gathered at different times show their source and age in the inspector. Nearby access-point readings are snapshots from the last user-requested scan. Refresh them after moving around a site."
+                "Facts gathered at different times show their source and age in the inspector. Nearby access-point readings are snapshots from the last user-requested scan. Refresh them after moving around a site.",
+                "Access-point manufacturer names come from the registered owner of the BSSID block in the app's embedded IEEE registry. That can identify the radio or board maker rather than the name printed on the enclosure. AP categories such as managed AP, mesh node, gateway, extender, and hotspot are cautious inferences from the maker, advertised security, or network name; hover over one to see why it was suggested."
             ],
             scale: [
                 ("Measured", "solid blue", "Read directly from the system. This is fact."),
@@ -287,13 +288,27 @@ enum HelpContent {
         HelpTopic(
             term: "Observed devices",
             category: .networkMap,
-            short: "Hosts already in this Mac's neighbour cache. Nothing was scanned.",
+            short: "Passive neighbours, with an optional active LAN scan.",
             body: [
-                "These are IPv4 neighbours from the cache macOS already keeps for hosts this Mac has exchanged traffic with. The app limits the list to the active Wi-Fi interface and subnet. Refresh Cache reads that cache again. It never probes an address, sweeps a range, or opens a port.",
-                "This is a recent cache, not a device inventory. A device that has been quiet, is isolated by client isolation, or speaks only IPv6 will not appear. Absence from this list is not evidence that a device is absent from the network.",
+                "These are IPv4 ARP and IPv6 neighbour entries macOS keeps for hosts this Mac has exchanged traffic with. The app limits passive results to the active interface. Refresh Cache only reads those caches again.",
+                "These are recent caches, not a guaranteed device inventory. A quiet device or one isolated from this Mac may not appear. Absence from this list is not evidence that a device is absent from the network.",
                 "Roles are taken from settings this Mac already holds: the gateway it was told to use, the DHCP server that issued its lease, the name servers it was given, and the BSSID of the radio it is associated with. When the gateway's address sits in the same vendor block and within a few addresses of that BSSID, one box is doing both jobs and the row says so.",
                 "Arrived and dropped out are worked out by comparing successive reads. Everything in the first read is treated as already present; anything appearing later arrived while you were watching. A device is only called gone after it has been missing from two consecutive reads, because the cache expires idle entries on its own schedule.",
+                "Use Columns above the list to show or hide IP addresses, MAC address, manufacturer, services and seen status. The choices are remembered on this Mac. Search covers hidden columns too.",
                 "This history lives in memory and lasts as long as the app is running. It is never written to disk."
+            ]
+        ),
+        HelpTopic(
+            term: "Scanning the LAN",
+            category: .networkMap,
+            short: "Optional IPv4 range discovery, ports and identity checks.",
+            body: [
+                "Scan LAN is different from Refresh Cache: it actively contacts IPv4 addresses. Choose the detected subnet, one address, a start/end range, or CIDR. The options sheet shows the exact range and count before anything is sent.",
+                "Find Devices sends ICMP echo and, when echo is blocked, one short fallback TCP connection. On the local link this also lets macOS resolve MAC addresses. A routed host can be shown without a MAC or manufacturer because those identifiers do not cross a router.",
+                "Full Scan checks the comma-separated TCP ports you choose. It can also browse Bonjour, perform reverse DNS, and ask Windows devices for NetBIOS computer and domain names. It never submits credentials, fetches web pages or looks for vulnerabilities.",
+                "There is no artificial range-size limit. Addresses are streamed in small batches so memory stays bounded and Stop Scan remains responsive. A very large range can still take hours or days and may generate substantial logs.",
+                "IPv6 neighbours already learned by macOS and IPv6 Bonjour answers appear passively. Full Scan can additionally send one link-local all-nodes echo so active IPv6 devices populate that cache. The app does not sweep the enormous IPv6 address space. Sleeping devices, client isolation and firewalls can still hide hosts. Open ports identify a listening service, not whether it is secure.",
+                "The attempts may be logged as network discovery or port scanning. Use this only on a network you own or have permission to assess. Stop Scan cancels work that has not started yet."
             ]
         ),
         HelpTopic(
@@ -302,7 +317,7 @@ enum HelpContent {
             short: "Your own labels for client hardware, stored on this Mac only.",
             body: [
                 "Double-click any row, or use its context menu, to give a device a name, a type and a note. A named device keeps that name wherever it appears, and the name follows the hardware address rather than the IP, so it survives a new DHCP lease.",
-                "The type is a label you apply, not something the app detects. Telling a printer from a camera would mean probing the device, which this app does not do.",
+                "The type is a label you apply. The app can suggest a type from a published model or name, an advertised or scanned service, or the hardware manufacturer, but the suggestion remains clearly marked as an inference.",
                 "Labels are written to this Mac's Application Support folder, and only for devices you have actually named, typed or annotated. A device you merely looked at leaves nothing on disk after the app quits. Forget This Label removes one; Forget All Labels removes every one.",
                 "Export Labels writes a file you can carry to another Mac. Import keeps your existing names when the two files disagree."
             ]
@@ -315,7 +330,7 @@ enum HelpContent {
                 "The row icon and the line beneath the name come from the strongest evidence available, in this order: a model the device published, the name it answers to, the services it offers, and finally the company that made its address.",
                 "A published model is exact, so \u{201C}iPhone14,2\u{201D} settles it. A name is next, because people name things plainly and a device called \u{201C}MacBook Air\u{201D} is one. Services come after names rather than before, because a Mac advertises AirPlay exactly as an Apple TV does: what a device offers often cannot tell two devices apart, but what it is called usually can.",
                 "The IEEE registry is last. It says which company owns a hardware address, and for many companies that narrows what the device is: a firm that only builds printers is unlikely to be on the network as anything else, so the row says \u{201C}Likely a printer\u{201D}.",
-                "The manufacturer step needs nothing from the device and is always on. The other three need a name or a model, which only arrive if you have run Identify, so a device you have not asked about is typed from its maker or not at all.",
+                "The manufacturer step needs nothing from the device and is always on. Names and models arrive through Identify; common listening services can also be found by Full Scan. A device that has not been actively queried is typed from its maker or not at all.",
                 "None of this is a measurement, which is why it is worded as a likelihood and sits below the name rather than replacing it.",
                 "Companies that build many kinds of product, or that supply the wireless module inside someone else\u{2019}s product, get no type at all. Apple builds phones, tablets, computers, watches and speakers, so the address cannot say which, and the app declines to guess rather than guessing badly.",
                 "A randomised address is never typed, because the prefix belongs to no manufacturer.",
@@ -450,12 +465,14 @@ enum HelpContent {
         HelpTopic(
             term: "What this app does on a client network",
             category: .permissions,
-            short: "It listens. Four features transmit, each only when you ask.",
+            short: "It listens by default. Active features run only when you ask.",
             body: [
                 "By default the app only reads the state of the link this Mac has already joined, the IP settings this Mac was assigned, and the neighbour cache macOS already keeps. It captures no traffic, scans no ports, sweeps no addresses, touches no credentials, and sends nothing to the developer.",
                 "A nearby-network scan sends standard Wi-Fi probe requests. The scan starts only when you press the button.",
                 "The gateway test sends ICMP echo to your own default router and to nothing else. It is off by default.",
                 "Identify can ask devices on the network to describe themselves over Bonjour, and can look addresses up in this network's DNS. Each asks for confirmation first and says what it sends and where it may be logged.",
+                "Scan LAN can actively find IPv4 hosts in the detected subnet or a range you enter, check selected TCP ports, and request DNS, Bonjour and Windows/SMB names. It asks for confirmation first and never sends credentials or vulnerability probes.",
+                "Speed Test is also off until you press Start. It transfers up to about 120 MB with Cloudflare's nearest edge: downloaded test data and generated zero-filled upload bytes, never your files or saved Wi-Fi details. Cloudflare can see the public IP and ordinary request metadata.",
                 "The Diagnostics tab states all of this inside the app, so you can show it to whoever asks what you are running."
             ]
         ),
@@ -464,7 +481,7 @@ enum HelpContent {
             category: .permissions,
             short: "Access point names, device labels and saved walkthroughs, on this Mac only.",
             body: [
-                "All three live in the app's sandbox container on this Mac. Nothing is uploaded, and there are no accounts or telemetry.",
+                "All three live in the app's sandbox container on this Mac. None is uploaded, and there are no accounts or telemetry. The optional speed test sends only generated test traffic, not stored data.",
                 "Device labels are written only for devices you have named, typed or annotated. A device you merely looked at leaves nothing on disk.",
                 "Access point names can identify client infrastructure, and device labels and saved walkthroughs can contain the same kind of information. Delete individual records when an engagement ends."
             ]
@@ -563,6 +580,14 @@ enum HelpIndex {
         "suggested type":  "Suggested device type",
         "likely a printer": "Suggested device type",
         "identify":        "Asking devices to identify themselves",
+        "scan lan":        "Scanning the LAN",
+        "full scan":       "Scanning the LAN",
+        "open ports":      "Scanning the LAN",
+        "open services":   "Scanning the LAN",
+        "custom range":    "Scanning the LAN",
+        "ipv6":            "Observed devices",
+        "smb name":        "Scanning the LAN",
+        "columns":         "Observed devices",
         "bonjour":         "Asking devices to identify themselves",
         "asked":           "Asking devices to identify themselves",
         "advertised name": "Asking devices to identify themselves",

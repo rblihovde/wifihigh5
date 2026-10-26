@@ -12,6 +12,10 @@ struct APRecord: Codable, Identifiable {
     var lastSSID: String?
     var lastChannel: Int?
     var lastBandRaw: Int?
+    var lastChannelWidthRaw: Int?
+    var lastPHYRaw: Int?
+    var lastSecurityRaw: Int?
+    var lastCountryCode: String?
     var bestRSSI: Int?
     var worstRSSI: Int?
     /// Site label, e.g. the client or floor where this AP lives.
@@ -105,6 +109,10 @@ final class APRegistry: ObservableObject {
         r.lastSSID = sample.ssid ?? r.lastSSID
         r.lastChannel = sample.channel
         r.lastBandRaw = sample.bandRaw
+        r.lastChannelWidthRaw = sample.channelWidthRaw > 0 ? sample.channelWidthRaw : r.lastChannelWidthRaw
+        r.lastPHYRaw = sample.phyRaw > 0 ? sample.phyRaw : r.lastPHYRaw
+        r.lastSecurityRaw = sample.securityRaw >= 0 ? sample.securityRaw : r.lastSecurityRaw
+        r.lastCountryCode = sample.countryCode ?? r.lastCountryCode
         // A Wi-Fi RSSI is always negative. Zero is what the interface returns
         // when it has no reading at all, and recording that as a best-ever
         // figure claims a perfect signal that never happened.
@@ -259,6 +267,13 @@ final class APRegistry: ObservableObject {
         if let v = r.bestRSSI, !plausible.contains(v) { r.bestRSSI = nil }
         if let v = r.worstRSSI, !plausible.contains(v) { r.worstRSSI = nil }
         if let c = r.lastChannel, !(1...233).contains(c) { r.lastChannel = nil }
+        if let width = r.lastChannelWidthRaw, !(1...5).contains(width) { r.lastChannelWidthRaw = nil }
+        if let phy = r.lastPHYRaw, !(1...7).contains(phy) { r.lastPHYRaw = nil }
+        if let security = r.lastSecurityRaw, !(0...15).contains(security) { r.lastSecurityRaw = nil }
+        if let country = r.lastCountryCode {
+            let cleaned = country.uppercased()
+            r.lastCountryCode = cleaned.count == 2 && cleaned.allSatisfy(\.isLetter) ? cleaned : nil
+        }
         let now = Date()
         if r.firstSeen > now { r.firstSeen = now }
         if r.lastSeen > now { r.lastSeen = now }
@@ -305,6 +320,10 @@ final class APRegistry: ObservableObject {
                 existing.lastSSID = incoming.lastSSID ?? existing.lastSSID
                 existing.lastChannel = incoming.lastChannel ?? existing.lastChannel
                 existing.lastBandRaw = incoming.lastBandRaw ?? existing.lastBandRaw
+                existing.lastChannelWidthRaw = incoming.lastChannelWidthRaw ?? existing.lastChannelWidthRaw
+                existing.lastPHYRaw = incoming.lastPHYRaw ?? existing.lastPHYRaw
+                existing.lastSecurityRaw = incoming.lastSecurityRaw ?? existing.lastSecurityRaw
+                existing.lastCountryCode = incoming.lastCountryCode ?? existing.lastCountryCode
             }
             if let incomingBest = incoming.bestRSSI {
                 existing.bestRSSI = Swift.max(existing.bestRSSI ?? Int.min, incomingBest)

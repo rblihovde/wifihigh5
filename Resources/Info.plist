@@ -15,9 +15,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-	<string>1.2</string>
+	<string>1.3</string>
     <key>CFBundleVersion</key>
-    <string>7</string>
+    <string>8</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>LSMinimumSystemVersion</key>
@@ -35,7 +35,7 @@
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>macOS classifies Wi-Fi network names as location data. Access is used only to read the SSID and BSSID of the network this Mac is already connected to. No location is recorded, stored or transmitted.</string>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>WifiHigh5 uses the local network only for features you switch on yourself: an optional echo to your own router to measure latency and packet loss, and Identify, which can ask devices on this network for the names they publish and look addresses up in the network's DNS. Identify says exactly what it will send before it sends anything. Everything else in the app reads only settings and caches this Mac already holds.</string>
+    <string>WifiHigh5 uses network access only for features you start yourself: router reachability, LAN discovery, and an optional Internet speed test. LAN discovery shows its target and asks for confirmation. The speed test sends only generated test bytes to Cloudflare; no files, Wi-Fi names, labels, or notes are uploaded.</string>
     <!-- macOS returns nothing from a Bonjour browse unless the service
          types are declared here, so this list must stay in step with
          the one in DeviceDiscovery.swift. -->
@@ -53,12 +53,17 @@
         <string>_googlecast._tcp</string>
         <string>_hap._tcp</string>
         <string>_smb._tcp</string>
+        <string>_nfs._tcp</string>
         <string>_afpovertcp._tcp</string>
         <string>_ssh._tcp</string>
         <string>_rfb._tcp</string>
         <string>_http._tcp</string>
         <string>_axis-video._tcp</string>
         <string>_spotify-connect._tcp</string>
+        <string>_mqtt._tcp</string>
+        <string>_home-assistant._tcp</string>
+        <string>_matter._tcp</string>
+        <string>_ndi._tcp</string>
     </array>
 </dict>
 </plist>

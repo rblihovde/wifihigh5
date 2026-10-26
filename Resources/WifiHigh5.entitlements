@@ -10,7 +10,8 @@
     <key>com.apple.security.app-sandbox</key>
     <true/>
 
-    <!-- Outgoing sockets: the optional gateway echo, Bonjour and reverse DNS. -->
+    <!-- Outgoing sockets: optional gateway echo, LAN scan, Bonjour, reverse DNS,
+         and the user-started Internet speed test. -->
     <key>com.apple.security.network.client</key>
     <true/>
 

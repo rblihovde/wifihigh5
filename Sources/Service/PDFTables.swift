@@ -81,7 +81,7 @@ extension PDFReport {
                             page: Int, pages: Int) {
         let continuation = pages > 1 ? "  (\(page) of \(pages))" : ""
         sheetHeading(pen, "Device Schedule" + continuation,
-                     "Devices already in this Mac's neighbour cache on the Wi-Fi subnet. A device that is absent from this list is not necessarily absent from the network.")
+                     "Devices in this Mac's neighbour cache on the Wi-Fi subnet. An approved LAN scan may have populated some entries. Absence does not prove a device is absent from the network.")
 
         let columns = [
             Column(title: "Name", width: 240),
@@ -106,8 +106,8 @@ extension PDFReport {
                 device.displayName,
                 device.role.label,
                 type,
-                device.ip,
-                device.mac,
+                device.addressSummary.replacingOccurrences(of: "\n", with: " / "),
+                device.hasHardwareAddress ? device.mac : "—",
                 device.vendorText,
                 device.wasDiscovered ? "Asked" : "Observed",
                 device.isPresent ? (device.isNew ? "Arrived" : "Present") : "Gone"
@@ -239,6 +239,7 @@ extension PDFReport {
                      "How every figure in this set was obtained, so a reader can judge what it is worth.")
 
         struct Section { var title: String; var body: [String] }
+        let activelyScanned = input.devices.contains(where: \.wasActivelyScanned)
         let sections: [Section] = [
             Section(title: "What this is",
                     body: [
@@ -252,13 +253,17 @@ extension PDFReport {
                     ]),
             Section(title: "What the app did not do",
                     body: [
-                        "It did not scan ports, sweep addresses, capture packets, or attempt to reach any host beyond the local gateway. It cannot see traffic between two other devices: Wi-Fi delivers frames only to the client they are addressed to, and each client holds a different key.",
-                        "Absence from the device schedule therefore means the device had not spoken to this Mac. It does not mean the device was not there."
+                        activelyScanned
+                            ? "At the operator's request, the app scanned an IPv4 range and optionally checked selected TCP services, DNS, Bonjour and SMB names. It did not send credentials, inspect vulnerabilities, or capture packets."
+                            : "It did not scan ports, sweep addresses, capture packets, or attempt to reach any host beyond the local gateway. It cannot see traffic between two other devices: Wi-Fi delivers frames only to the client they are addressed to, and each client holds a different key.",
+                        activelyScanned
+                            ? "A device may still be absent when it is asleep, blocks connection attempts, uses only IPv6, or is separated by client isolation."
+                            : "Absence from the device schedule therefore means the device had not spoken to this Mac. It does not mean the device was not there."
                     ]),
             Section(title: "Where a value was obtained by asking",
                     body: [
                         input.discoveryUsed
-                            ? "Some names in this set were obtained by asking. Bonjour queries were sent on the local subnet, or reverse lookups were sent to this network's name servers, at the operator's request. Every row carrying such a value is marked Asked in the device schedule."
+                            ? "Some device details in this set were obtained by asking at the operator's request. Depending on the chosen action, this included an IPv4 range scan, selected TCP services, Bonjour, SMB name queries, or reverse DNS. Those rows are marked Asked in the device schedule."
                             : "Nothing in this set was obtained by asking. No query was sent to any device, and no lookup was sent to any name server."
                     ]),
             Section(title: "Reading confidence",

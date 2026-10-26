@@ -122,24 +122,26 @@ struct DiagnosticsView: View {
                 group("It reads", [
                     "The state of the link this Mac has already joined, from the OS.",
                     "IP, DNS, DHCP and gateway settings this Mac was assigned.",
-                    "Existing ARP cache entries for the passive Observed Devices view."
+                    "Existing IPv4 ARP and IPv6 neighbor cache entries for the passive Observed Devices view."
                 ], .green, "checkmark")
 
                 group("It does not", [
                     "Capture, inspect or decode any traffic.",
-                    "Scan ports, sweep address ranges or probe hosts for weaknesses.",
+                    "Probe hosts for weaknesses, exploit services, fetch pages or send credentials.",
                     "Attempt to join networks or handle credentials.",
-                    "Send telemetry or use cloud services. The app has no accounts."
+                    "Send telemetry, run background cloud checks or use accounts."
                 ], .secondary, "xmark")
 
                 group("It transmits only when you ask", [
                     "Scan Now sends probe requests, the same frames as joining a network.",
                     "Gateway ping sends ICMP echo to your own default router, and nowhere else.",
                     "Identify can send Bonjour queries asking devices on this network to describe themselves.",
-                    "Identify can send reverse DNS lookups for observed addresses to this network's name servers."
+                    "Identify can send reverse DNS lookups for observed addresses to this network's name servers.",
+                    "Scan LAN can scan the detected subnet or an IPv4 range you enter, ping hosts, check selected TCP ports, request DNS, Bonjour and Windows/SMB names, and solicit link-local IPv6 neighbors after confirmation.",
+                    "Speed Test downloads test data and uploads only generated zero-filled bytes to Cloudflare's edge after you press Start. Cloudflare can see the public IP and normal request metadata."
                 ], .orange, "exclamationmark")
 
-                Text("All four are off until you switch them on, and each is labelled where it appears. The two Identify options ask for confirmation first. None of them sends anything to the developer.")
+                Text("All active features are off until you switch them on, and each is labelled where it appears. LAN discovery and the two Identify options ask for confirmation first. The speed test has its data-use disclosure beside Start. None sends anything to the developer.")
                     .font(.system(size: 10.5)).foregroundStyle(Color.subtle)
                     .fixedSize(horizontal: false, vertical: true)
             }

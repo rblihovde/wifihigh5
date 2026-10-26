@@ -182,7 +182,14 @@ enum DeviceClassifier {
         if let fromName = nameGuess(finding?.advertisedName ?? finding?.hostname) {
             return fromName
         }
-        if let fromServices = serviceGuess(finding?.services) { return fromServices }
+        var serviceEvidence = finding?.services ?? []
+        if let ports = finding?.openPorts {
+            if !ports.isDisjoint(with: [515, 631, 9100]) { serviceEvidence.insert("Printing") }
+            if !ports.isDisjoint(with: [139, 445, 548]) { serviceEvidence.insert("File sharing") }
+            if ports.contains(5900) { serviceEvidence.insert("Screen sharing") }
+            if ports.contains(8008) { serviceEvidence.insert("Chromecast") }
+        }
+        if let fromServices = serviceGuess(serviceEvidence) { return fromServices }
         if let looseModel = looseModelGuess(finding?.model) { return looseModel }
         // A randomised address belongs to no manufacturer, so the registry can
         // say nothing about it. Everything above still applies, because those

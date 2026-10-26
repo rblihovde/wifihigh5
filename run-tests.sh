@@ -13,6 +13,7 @@ swiftc \
     -swift-version 5 \
     -target arm64-apple-macos14.0 \
     -framework SwiftUI \
+    -framework Network \
     Sources/Model/Model.swift \
     Sources/Model/Survey.swift \
     Sources/Model/APRegistry.swift \
@@ -24,11 +25,16 @@ swiftc \
     Sources/Model/DeviceRegistry.swift \
     Sources/Model/DeviceRole.swift \
     Sources/Model/DeviceClassifier.swift \
+    Sources/Model/AccessPointClassifier.swift \
+    Sources/Model/SpeedTestResult.swift \
     Sources/Model/ObservedDevice.swift \
     Sources/Model/ObservedDeviceBuilder.swift \
     Sources/Service/DeviceDiscovery.swift \
+    Sources/Service/LANScanner.swift \
+    Sources/Service/NetBIOSResolver.swift \
     Sources/Service/DevicePresence.swift \
     Sources/Service/ARPTable.swift \
+    Sources/Service/IPv6NeighborTable.swift \
     Sources/Service/ReportBuilder.swift \
     Sources/Service/VendorDatabase.swift \
     Sources/View/HoverHelp.swift \

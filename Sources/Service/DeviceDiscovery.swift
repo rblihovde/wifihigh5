@@ -18,14 +18,33 @@ struct DeviceFinding: Equatable {
     var services: Set<String> = []
     /// A name held by this network's DNS, from a reverse lookup.
     var hostname: String?
+    /// Windows/SMB identity returned by an optional NetBIOS node-status query.
+    var smbName: String?
+    var smbDomain: String?
+    /// TCP services found by the optional selected-port scan.
+    var openPorts: Set<Int> = []
+    /// Fastest TCP response observed during the scan. This is a rough local
+    /// round-trip indicator, not an ICMP ping measurement.
+    var responseTimeMS: Double?
+    /// ICMP round trip when the host answered echo specifically.
+    var pingTimeMS: Double?
+    /// When this address last took part in an active LAN scan.
+    var scanObservedAt: Date?
+    /// Whether it answered the most recent scan that included its address.
+    var scanOnline: Bool?
+    /// Most recent successful active response, retained when a later scan finds
+    /// the host offline.
+    var lastRespondedAt: Date?
 
     var isEmpty: Bool {
-        advertisedName == nil && model == nil && services.isEmpty && hostname == nil
+        advertisedName == nil && model == nil && services.isEmpty && hostname == nil &&
+        smbName == nil && smbDomain == nil &&
+        openPorts.isEmpty && scanObservedAt == nil && scanOnline == nil
     }
 
     /// The best single name to show, or nil when nothing was learned.
     var bestName: String? {
-        advertisedName ?? hostname
+        advertisedName ?? hostname ?? smbName
     }
 }
 
@@ -34,15 +53,118 @@ final class DeviceDiscovery: ObservableObject {
     @Published private(set) var findings: [String: DeviceFinding] = [:]
     @Published private(set) var isBrowsing = false
     @Published private(set) var isResolvingNames = false
+    @Published private(set) var isScanningLAN = false
+    @Published private(set) var lanScanCompleted = 0
+    @Published private(set) var lanScanTotal = 0
+    @Published private(set) var lanScanPhase = ""
     @Published private(set) var lastBonjourRun: Date?
     @Published private(set) var lastDNSRun: Date?
+    @Published private(set) var lastLANRun: Date?
     @Published private(set) var message: String?
 
     private var scan: BonjourScan?
+    private var lanCancellation: LANScanCancellation?
 
     var hasFindings: Bool { !findings.isEmpty }
+    var isSending: Bool { isBrowsing || isResolvingNames || isScanningLAN }
 
     func finding(forIP ip: String) -> DeviceFinding? { findings[ip] }
+
+    func finding(forAddresses addresses: [String]) -> DeviceFinding? {
+        var combined: DeviceFinding?
+        for address in addresses {
+            guard let incoming = findings[address] else { continue }
+            var value = combined ?? DeviceFinding()
+            value.advertisedName = value.advertisedName ?? incoming.advertisedName
+            value.model = value.model ?? incoming.model
+            value.services.formUnion(incoming.services)
+            value.hostname = value.hostname ?? incoming.hostname
+            value.smbName = value.smbName ?? incoming.smbName
+            value.smbDomain = value.smbDomain ?? incoming.smbDomain
+            value.openPorts.formUnion(incoming.openPorts)
+            value.responseTimeMS = [value.responseTimeMS, incoming.responseTimeMS]
+                .compactMap { $0 }.min()
+            value.pingTimeMS = [value.pingTimeMS, incoming.pingTimeMS]
+                .compactMap { $0 }.min()
+            value.scanObservedAt = max(value.scanObservedAt ?? .distantPast,
+                                       incoming.scanObservedAt ?? .distantPast)
+            if value.scanObservedAt == .distantPast { value.scanObservedAt = nil }
+            value.scanOnline = incoming.scanOnline ?? value.scanOnline
+            value.lastRespondedAt = max(value.lastRespondedAt ?? .distantPast,
+                                        incoming.lastRespondedAt ?? .distantPast)
+            if value.lastRespondedAt == .distantPast { value.lastRespondedAt = nil }
+            combined = value
+        }
+        return combined
+    }
+
+    var allFindings: [String: DeviceFinding] { findings }
+
+    // MARK: LAN scan
+
+    /// Actively scans a validated IPv4 plan. The caller chooses whether the
+    /// plan is the current subnet or an explicit range, and shows consent UI.
+    func scanLAN(plan: LANScanner.TargetPlan,
+                 localAddress: String?, mask: String?, interface: String?,
+                 ports: [UInt16], resolveSMB: Bool,
+                 completion: @escaping ([String], [ARPEntry]) -> Void) {
+        guard !isScanningLAN else { return }
+        guard plan.targetCount > 0 else { message = "The selected range is empty."; return }
+
+        let cancellation = LANScanCancellation()
+        lanCancellation = cancellation
+        isScanningLAN = true
+        lanScanCompleted = 0
+        lanScanTotal = Int(min(plan.targetCount, UInt64(Int.max)))
+        lanScanPhase = "Finding devices"
+        message = nil
+
+        DispatchQueue.global(qos: .utility).async {
+            let result = LANScanner.run(
+                plan: plan, localAddress: localAddress, mask: mask, interface: interface,
+                ports: ports, resolveSMB: resolveSMB, cancellation: cancellation
+            ) { completed, total, phase in
+                Task { @MainActor in
+                    guard self.lanCancellation === cancellation else { return }
+                    self.lanScanCompleted = completed
+                    self.lanScanTotal = total
+                    self.lanScanPhase = phase
+                }
+            }
+
+            Task { @MainActor in
+                guard self.lanCancellation === cancellation else { return }
+                self.isScanningLAN = false
+                self.lanCancellation = nil
+                self.lastLANRun = Date()
+                let checkedAt = Date()
+                // A stopped scan never reached some addresses, so only a scan
+                // that finished may call a previously found host offline.
+                let checkedAddresses = result.cancelled ? [] : self.findings.keys.filter(plan.contains)
+                for address in checkedAddresses {
+                    guard var finding = self.findings[address] else { continue }
+                    guard finding.scanObservedAt != nil else { continue }
+                    finding.scanObservedAt = checkedAt
+                    finding.scanOnline = false
+                    self.findings[address] = finding
+                }
+                self.merge(result.findings, replacingScan: true)
+                let count = result.liveAddresses.count
+                var summary = result.cancelled
+                    ? "LAN scan stopped. \(count) device\(count == 1 ? "" : "s") found before it stopped."
+                    : "LAN scan found \(count) device\(count == 1 ? "" : "s")."
+                if !ports.isEmpty && !result.cancelled {
+                    let open = result.findings.values.reduce(0) { $0 + $1.openPorts.count }
+                    summary += " \(open) open TCP service\(open == 1 ? "" : "s") identified."
+                }
+                summary += " Range: \(plan.label)."
+                self.message = summary
+                completion(result.liveAddresses, result.entries)
+            }
+        }
+    }
+
+    func cancelLANScan() { lanCancellation?.cancel() }
 
     // MARK: Bonjour
 
@@ -106,31 +228,55 @@ final class DeviceDiscovery: ObservableObject {
     /// One reverse lookup. Returns nil when the resolver has no name, rather
     /// than echoing the address back as its own name.
     nonisolated private static func reverseLookup(_ address: String) -> String? {
+        var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
         var sin = sockaddr_in()
         sin.sin_family = sa_family_t(AF_INET)
         sin.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        guard address.withCString({ inet_pton(AF_INET, $0, &sin.sin_addr) }) == 1 else { return nil }
-
-        var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-        let result = withUnsafePointer(to: &sin) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                getnameinfo(sa, socklen_t(MemoryLayout<sockaddr_in>.size),
-                            &host, socklen_t(NI_MAXHOST), nil, 0, NI_NAMEREQD)
+        if address.withCString({ inet_pton(AF_INET, $0, &sin.sin_addr) }) == 1 {
+            let result = withUnsafePointer(to: &sin) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    getnameinfo(sa, socklen_t(MemoryLayout<sockaddr_in>.size),
+                                &host, socklen_t(NI_MAXHOST), nil, 0, NI_NAMEREQD)
+                }
             }
+            guard result == 0 else { return nil }
+        } else {
+            var sin6 = sockaddr_in6()
+            sin6.sin6_family = sa_family_t(AF_INET6)
+            sin6.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.size)
+            guard address.withCString({ inet_pton(AF_INET6, $0, &sin6.sin6_addr) }) == 1 else {
+                return nil
+            }
+            let result = withUnsafePointer(to: &sin6) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    getnameinfo(sa, socklen_t(MemoryLayout<sockaddr_in6>.size),
+                                &host, socklen_t(NI_MAXHOST), nil, 0, NI_NAMEREQD)
+                }
+            }
+            guard result == 0 else { return nil }
         }
-        guard result == 0 else { return nil }
         let name = UntrustedText.clean(String(cString: host), limit: 253)
         return name.isEmpty || name == address ? nil : name
     }
 
     // MARK: Housekeeping
 
-    private func merge(_ found: [String: DeviceFinding]) {
+    private func merge(_ found: [String: DeviceFinding], replacingScan: Bool = false) {
         for (ip, incoming) in found {
             var existing = findings[ip] ?? DeviceFinding()
             existing.advertisedName = incoming.advertisedName ?? existing.advertisedName
             existing.model = incoming.model ?? existing.model
             existing.services.formUnion(incoming.services)
+            existing.smbName = incoming.smbName ?? existing.smbName
+            existing.smbDomain = incoming.smbDomain ?? existing.smbDomain
+            if replacingScan {
+                existing.openPorts = incoming.openPorts
+                existing.responseTimeMS = incoming.responseTimeMS
+                existing.pingTimeMS = incoming.pingTimeMS
+                existing.scanObservedAt = incoming.scanObservedAt
+                existing.scanOnline = incoming.scanOnline
+                existing.lastRespondedAt = incoming.lastRespondedAt ?? existing.lastRespondedAt
+            }
             findings[ip] = existing
         }
     }
@@ -139,10 +285,17 @@ final class DeviceDiscovery: ObservableObject {
 
     /// Discards everything learned by asking, leaving only what was observed.
     func clear() {
+        lanCancellation?.cancel()
+        lanCancellation = nil
+        isScanningLAN = false
+        lanScanCompleted = 0
+        lanScanTotal = 0
+        lanScanPhase = ""
         findings.removeAll()
         lastBonjourRun = nil
         lastDNSRun = nil
-        message = "Discovered names were discarded."
+        lastLANRun = nil
+        message = "Actively discovered names, services and scan results were discarded."
     }
 }
 
@@ -175,12 +328,17 @@ private final class BonjourScan: NSObject, NetServiceBrowserDelegate,
         ("_googlecast._tcp.",      "Chromecast"),
         ("_hap._tcp.",             "HomeKit accessory"),
         ("_smb._tcp.",             "File sharing"),
+        ("_nfs._tcp.",             "File sharing"),
         ("_afpovertcp._tcp.",      "File sharing"),
         ("_ssh._tcp.",             "Remote shell"),
         ("_rfb._tcp.",             "Screen sharing"),
         ("_http._tcp.",            "Web interface"),
         ("_axis-video._tcp.",      "Camera"),
-        ("_spotify-connect._tcp.", "Speaker")
+        ("_spotify-connect._tcp.", "Speaker"),
+        ("_mqtt._tcp.",            "MQTT"),
+        ("_home-assistant._tcp.",  "Home Assistant"),
+        ("_matter._tcp.",          "Matter accessory"),
+        ("_ndi._tcp.",             "NDI video")
     ]
 
     /// A device chooses what it advertises, and a hostile one could advertise
@@ -286,7 +444,7 @@ private final class BonjourScan: NSObject, NetServiceBrowserDelegate,
         let name = UntrustedText.clean(service.name, limit: 256)
 
         for data in addresses {
-            guard let ip = Self.ipv4(from: data) else { continue }
+            guard let ip = Self.ipAddress(from: data) else { continue }
             guard results[ip] != nil || results.count < Self.maximumAddresses else {
                 truncated = true
                 continue
@@ -309,17 +467,29 @@ private final class BonjourScan: NSObject, NetServiceBrowserDelegate,
         resolveSettled(service)
     }
 
-    private static func ipv4(from data: Data) -> String? {
+    private static func ipAddress(from data: Data) -> String? {
         data.withUnsafeBytes { raw -> String? in
             guard raw.count >= MemoryLayout<sockaddr>.size else { return nil }
             let sa = raw.bindMemory(to: sockaddr.self).baseAddress!
-            guard sa.pointee.sa_family == UInt8(AF_INET) else { return nil }
-            var address = raw.bindMemory(to: sockaddr_in.self).baseAddress!.pointee.sin_addr
-            var text = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-            guard inet_ntop(AF_INET, &address, &text, socklen_t(INET_ADDRSTRLEN)) != nil else {
-                return nil
+            if sa.pointee.sa_family == UInt8(AF_INET) {
+                guard raw.count >= MemoryLayout<sockaddr_in>.size else { return nil }
+                var address = raw.bindMemory(to: sockaddr_in.self).baseAddress!.pointee.sin_addr
+                var text = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+                guard inet_ntop(AF_INET, &address, &text, socklen_t(INET_ADDRSTRLEN)) != nil else {
+                    return nil
+                }
+                return String(cString: text)
             }
-            return String(cString: text)
+            if sa.pointee.sa_family == UInt8(AF_INET6) {
+                guard raw.count >= MemoryLayout<sockaddr_in6>.size else { return nil }
+                var address = raw.bindMemory(to: sockaddr_in6.self).baseAddress!.pointee.sin6_addr
+                var text = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+                guard inet_ntop(AF_INET6, &address, &text, socklen_t(INET6_ADDRSTRLEN)) != nil else {
+                    return nil
+                }
+                return String(cString: text).lowercased()
+            }
+            return nil
         }
     }
 }

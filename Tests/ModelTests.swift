@@ -106,6 +106,64 @@ private func testAPIdentity() {
     expect("colour index is in range", key1.colorIndex >= 0 && key1.colorIndex < APPalette.colors.count)
 }
 
+// MARK: Access point descriptions
+
+private func testAccessPointClassifier() {
+    let managed = AccessPointProfile.identify(
+        bssid: "00:11:22:33:44:55", ssid: "Office", securityRaw: 4,
+        vendor: .known("Ubiquiti Inc"))
+    expectEqual("managed Wi-Fi maker suggests a managed AP", managed.kind,
+                "Likely managed access point")
+    expectEqual("AP maker is carried through", managed.manufacturer, "Ubiquiti Inc")
+
+    let enterprise = AccessPointProfile.identify(
+        bssid: "00:11:22:33:44:55", ssid: "Corp", securityRaw: 12,
+        vendor: .known("Generic Radio Inc"))
+    expectEqual("enterprise security identifies enterprise AP", enterprise.kind,
+                "Enterprise access point")
+
+    let extender = AccessPointProfile.identify(
+        bssid: "00:11:22:33:44:55", ssid: "House_EXT", securityRaw: 4,
+        vendor: .known("Generic Radio Inc"))
+    expectEqual("extender-style SSID is hedged", extender.kind, "Likely range extender")
+
+    let mesh = AccessPointProfile.identify(
+        bssid: "00:11:22:33:44:55", ssid: "Home", securityRaw: 4,
+        vendor: .known("eero inc."))
+    expectEqual("mesh-focused maker suggests mesh", mesh.kind, "Likely mesh Wi-Fi node")
+
+    let hidden = AccessPointProfile.identify(
+        bssid: nil, ssid: nil, securityRaw: nil, vendor: .unregistered)
+    expectEqual("hidden BSSID cannot name a maker", hidden.manufacturer,
+                "Manufacturer unavailable")
+    expectEqual("unknown subtype stays factual", hidden.kind, "Wi-Fi access point")
+
+    let software = AccessPointProfile.identify(
+        bssid: "02:00:00:00:00:01", ssid: "Guest", securityRaw: 4,
+        vendor: .randomised)
+    expectEqual("software address is not attributed", software.manufacturer,
+                "Software-assigned BSSID")
+}
+
+// MARK: Speed test arithmetic
+
+private func testSpeedTestMath() {
+    expectEqual("one megabyte per second is eight megabits",
+                SpeedTestMath.megabitsPerSecond(bytes: 1_000_000, seconds: 1), 8)
+    expectEqual("invalid speed duration is zero",
+                SpeedTestMath.megabitsPerSecond(bytes: 1_000_000, seconds: 0), 0)
+    expectEqual("odd median", SpeedTestMath.median([30, 10, 20]), 20)
+    expectEqual("even median", SpeedTestMath.median([40, 10, 30, 20]), 25)
+    expectEqual("empty median", SpeedTestMath.median([]), 0)
+    expectEqual("ninetieth percentile selects a high observed value",
+                SpeedTestMath.percentile([10, 20, 30, 40, 50], 0.9), 50)
+    expectEqual("percentile input is bounded",
+                SpeedTestMath.percentile([10, 20, 30], 2), 30)
+    expectEqual("jitter averages adjacent changes",
+                SpeedTestMath.jitter([10, 14, 11]), 3.5)
+    expectEqual("one latency point has no jitter", SpeedTestMath.jitter([10]), 0)
+}
+
 // MARK: Formatting
 
 private func testFormatting() {
@@ -1114,6 +1172,119 @@ private func testDiscoveryFindings() {
                 untouched.displayName, "Observed device")
 }
 
+// MARK: Active LAN scan range
+
+private func testLANScanTargets() {
+    let slash24 = LANScanner.targetPlan(localAddress: "192.168.50.23",
+                                        mask: "255.255.255.0")
+    expectEqual("a /24 scans every usable peer", slash24?.targetCount, 253)
+    expectEqual("the scanner does not connect back to this Mac",
+                slash24?.contains("192.168.50.23"), false)
+    expectEqual("the first /24 host is included", slash24?.firstAddress, "192.168.50.1")
+    expectEqual("the directed broadcast is excluded", slash24?.lastAddress, "192.168.50.254")
+
+    let broad = LANScanner.targetPlan(localAddress: "10.20.30.40",
+                                      mask: "255.255.0.0")
+    expectEqual("a broad subnet has no artificial cap", broad?.targetCount, 65_533)
+    expect("the full range surrounds this Mac",
+           broad?.contains("10.20.30.39") == true && broad?.contains("10.20.30.41") == true)
+
+    let custom = try? LANScanner.customPlan("172.16.4.10-172.16.4.19", excluding: nil)
+    expectEqual("an explicit range keeps every endpoint", custom?.targetCount, 10)
+    expectEqual("an explicit range starts where requested", custom?.firstAddress, "172.16.4.10")
+    expectEqual("an explicit range ends where requested", custom?.lastAddress, "172.16.4.19")
+    let cidr = try? LANScanner.customPlan("10.1.2.99/24", excluding: nil)
+    expectEqual("CIDR normalises to its network", cidr?.label, "10.1.2.0/24")
+    expectEqual("CIDR excludes network and broadcast", cidr?.targetCount, 254)
+    expectEqual("custom ports are sorted and deduplicated",
+                LANScanner.parsePorts("443, 22,443"), [22, 443])
+    expect("invalid custom ports are rejected", LANScanner.parsePorts("22,nope") == nil)
+    expect("a private range is not called public", custom?.includesPublicAddresses == false)
+    expect("a range reaching the Internet is called public",
+           (try? LANScanner.customPlan("8.8.8.0/24", excluding: nil))?.includesPublicAddresses == true)
+    expect("a range spanning two private blocks is called public",
+           (try? LANScanner.customPlan("10.0.0.0/7", excluding: nil))?.includesPublicAddresses == true)
+
+    expect("a non-contiguous mask is rejected",
+           LANScanner.targetPlan(localAddress: "192.168.1.2", mask: "255.0.255.0") == nil)
+    expect("malformed addresses are rejected",
+           LANScanner.targetPlan(localAddress: "not-an-ip", mask: "255.255.255.0") == nil)
+}
+
+private func testNetBIOSParsing() {
+    func record(_ name: String, suffix: UInt8, group: Bool) -> [UInt8] {
+        let padded = Array(name.utf8.prefix(15)) +
+            [UInt8](repeating: 0x20, count: max(0, 15 - name.utf8.count))
+        return Array(padded.prefix(15)) + [suffix, group ? 0x80 : 0x00, 0x00]
+    }
+    var reply: [UInt8] = [
+        0x12, 0x34, 0x85, 0x00,
+        0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x00,
+        0xC0, 0x0C, 0x00, 0x21, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x25, 0x02
+    ]
+    reply += record("RECEPTION-PC", suffix: 0x00, group: false)
+    reply += record("WORKGROUP", suffix: 0x00, group: true)
+    let parsed = NetBIOSResolver.parse(Data(reply), expectedID: 0x1234)
+    expectEqual("NetBIOS returns the Windows computer name", parsed?.name, "RECEPTION-PC")
+    expectEqual("NetBIOS returns the Windows workgroup", parsed?.domain, "WORKGROUP")
+    expect("NetBIOS rejects a mismatched transaction", NetBIOSResolver.parse(Data(reply), expectedID: 1) == nil)
+
+    // Any device on the network can answer, so random and truncated replies
+    // must be refused without a fault. Seeded, so a failure reproduces.
+    var seed: UInt64 = 0xD1B5_4A32_D192_ED03
+    func next() -> UInt64 {
+        seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+        return seed >> 33
+    }
+    var survived = 0
+    for round in 0..<20_000 {
+        var bytes: [UInt8]
+        if round.isMultiple(of: 2) {
+            bytes = Array(reply.prefix(Int(next() % UInt64(reply.count + 1))))
+            for _ in 0..<Int(next() % 4) where !bytes.isEmpty {
+                bytes[Int(next() % UInt64(bytes.count))] = UInt8(truncatingIfNeeded: next())
+            }
+        } else {
+            bytes = (0..<Int(next() % 300)).map { _ in UInt8(truncatingIfNeeded: next()) }
+        }
+        _ = NetBIOSResolver.parse(Data(bytes))
+        survived += 1
+    }
+    expectEqual("twenty thousand malformed NetBIOS replies are read without a fault", survived, 20_000)
+}
+
+private func testIPv6NeighborParsing() {
+    func parse(_ bytes: [UInt8]) -> [IPv6Neighbor] {
+        bytes.withUnsafeBytes { IPv6NeighborTable.parse($0) }
+    }
+    expect("an empty buffer yields no IPv6 neighbours", parse([]).isEmpty)
+
+    var seed: UInt64 = 0x2545_F491_4F6C_DD1D
+    func next() -> UInt64 {
+        seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+        return seed >> 33
+    }
+    let lengthField = MemoryLayout<rt_msghdr>.offset(of: \.rtm_msglen)!
+    let header = MemoryLayout<rt_msghdr>.size
+    var survived = 0
+    for _ in 0..<20_000 {
+        let count = Int(next() % 400)
+        var bytes = (0..<count).map { _ in UInt8(truncatingIfNeeded: next()) }
+        if count >= lengthField + 2, next() % 2 == 0 {
+            let claimed = UInt16(truncatingIfNeeded: next() % UInt64(count + 1))
+            bytes[lengthField] = UInt8(claimed & 0xff)
+            bytes[lengthField + 1] = UInt8(claimed >> 8)
+            if count > header, next() % 2 == 0 { bytes[header] = UInt8(truncatingIfNeeded: 24 + next() % 8) }
+        }
+        _ = parse(bytes)
+        survived += 1
+    }
+    expectEqual("twenty thousand malformed IPv6 neighbour buffers are read without a fault", survived, 20_000)
+}
+
 // MARK: Device type from what the device itself says
 
 @MainActor
@@ -1255,6 +1426,8 @@ struct TestRunner {
         testSignalQuality()
         testNoiseHandling()
         testAPIdentity()
+        testAccessPointClassifier()
+        testSpeedTestMath()
         testFormatting()
         testSurveyLegs()
         testExports()
@@ -1274,6 +1447,9 @@ struct TestRunner {
         testDeviceCSV()
         testDeviceClassifier()
         testDiscoveryFindings()
+        testLANScanTargets()
+        testNetBIOSParsing()
+        testIPv6NeighborParsing()
         testDeviceEvidence()
         if CommandLine.arguments.count > 1 {
             let databaseURL = URL(fileURLWithPath: CommandLine.arguments[1])

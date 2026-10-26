@@ -8,6 +8,7 @@ enum Pane: String, CaseIterable, Identifiable {
     case roamLog = "Connection Changes"
     case surveys = "Walkthroughs"
     case nearby = "Nearby Networks"
+    case speedTest = "Speed Test"
     case diagnostics = "Diagnostics"
 
     var id: String { rawValue }
@@ -21,6 +22,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .roamLog:      return "arrow.left.arrow.right"
         case .surveys:      return "figure.walk"
         case .nearby:       return "dot.radiowaves.up.forward"
+        case .speedTest:    return "speedometer"
         case .diagnostics:  return "stethoscope"
         }
     }
@@ -61,6 +63,7 @@ struct RootView: View {
                 case .roamLog:      RoamLogView()
                 case .surveys:      SurveysView()
                 case .nearby:       NearbyView()
+                case .speedTest:    SpeedTestView()
                 case .diagnostics:  DiagnosticsView()
                 }
             }

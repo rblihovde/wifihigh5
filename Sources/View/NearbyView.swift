@@ -5,6 +5,7 @@ struct NearbyView: View {
     @EnvironmentObject var scanner: Scanner
     @EnvironmentObject var monitor: WiFiMonitor
     @EnvironmentObject var registry: APRegistry
+    @EnvironmentObject var vendors: VendorDatabase
 
     @State private var sameNetworkOnly = false
 
@@ -177,9 +178,13 @@ struct NearbyView: View {
     }
 
     private func row(_ r: ScanResult) -> some View {
-        HStack(spacing: 10) {
+        let identity = AccessPointProfile.identify(
+            bssid: r.bssid, ssid: r.ssid, securityRaw: r.securityRaw,
+            vendor: vendors.lookup(r.bssid)
+        )
+        return HStack(spacing: 10) {
             RoundedRectangle(cornerRadius: 4)
-                .fill(registry.color(for: r.key)).frame(width: 10, height: 30)
+                .fill(registry.color(for: r.key)).frame(width: 10, height: 44)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -200,6 +205,17 @@ struct NearbyView: View {
                         .font(.system(size: 10))
                         .foregroundStyle(securityIsOpen(r.securityRaw) ? .red : .secondary)
                 }
+                HStack(spacing: 5) {
+                    Text(identity.kind)
+                        .fontWeight(.medium)
+                        .help(identity.kindDetail)
+                    Text("·").foregroundStyle(.tertiary)
+                    Text(identity.manufacturer)
+                        .help(identity.manufacturerDetail)
+                }
+                .font(.system(size: 9.5))
+                .foregroundStyle(Color.subtle)
+                .lineLimit(1)
             }
 
             Spacer(minLength: 8)

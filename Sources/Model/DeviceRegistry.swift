@@ -144,6 +144,12 @@ final class DeviceRegistry: ObservableObject {
         return parts.map { $0.count == 1 ? "0" + $0 : String($0) }.joined(separator: ":")
     }
 
+    nonisolated static func isValidMAC(_ mac: String) -> Bool {
+        let parts = normalise(mac).split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 6 else { return false }
+        return parts.allSatisfy { $0.count == 2 && UInt8($0, radix: 16) != nil }
+    }
+
     // MARK: Reads
 
     func record(forMAC mac: String) -> DeviceRecord? {

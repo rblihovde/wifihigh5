@@ -1,9 +1,10 @@
 # WifiHigh5 Privacy Policy
 
-**Last updated: 12 September 2026**
+**Last updated: 24 October 2026**
 
-WifiHigh5 does not collect, transmit or share any data. There are no
-accounts, no analytics, no crash reporting and no advertising.
+WifiHigh5 does not collect or share personal data. There are no accounts,
+analytics, crash reporting or advertising. An Internet speed test you start
+transfers generated test traffic to Cloudflare as described below.
 
 ## What the app reads
 
@@ -44,8 +45,8 @@ network name and access point identifier are unavailable.
 
 ## Network activity
 
-The app performs no network communication on its own. Four features transmit,
-each only after you invoke it, and each is labelled where it appears:
+The app performs no network communication on its own. Active features transmit
+only after you invoke them, and each is labelled where it appears:
 
 - **Scanning for nearby access points** sends standard Wi-Fi probe requests,
   the same frames any device sends when joining a network.
@@ -56,13 +57,25 @@ each only after you invoke it, and each is labelled where it appears:
   publish for themselves.
 - **Looking up names in DNS** sends one reverse lookup for each observed local
   address to the name servers your network gave your Mac.
+- **Scanning the LAN or a custom range** sends ICMP echo and fallback TCP
+  connection attempts to the IPv4 addresses you select. The optional full scan
+  checks the TCP ports you enter and can browse Bonjour, look up DNS, and ask
+  for Windows/SMB computer and domain names. An optional link-local IPv6 echo
+  asks active IPv6 neighbors to populate the system cache. It sends no
+  credentials, fetches no pages, and performs no vulnerability tests.
+- **Running an Internet speed test** sends requests to Cloudflare's nearest
+  edge. The test downloads disposable data and uploads only generated
+  zero-filled bytes, up to about 120 MB in total. It does not send files,
+  network names, BSSIDs, saved labels, notes or walkthroughs. Cloudflare sees
+  the public IP address and ordinary request metadata needed to serve the test.
 
-The last two ask for confirmation first, saying what will be sent and where it
-may be logged.
+LAN scanning and the two identification actions ask for confirmation first,
+saying what will be sent and where it may be logged. The speed-test disclosure
+is shown beside its Start button.
 
-All four are local network diagnostics: packets exchanged with devices and
-services on the network you are connected to. None of them sends anything to
-the developer or to any other party.
+These are direct diagnostics between this Mac and the devices, ranges, and
+name services you select. Bonjour remains on the local link; a custom IPv4
+range can be routed beyond it. None sends anything to the developer.
 
 The hardware manufacturer database is embedded in the app and is never fetched
 at runtime.

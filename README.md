@@ -201,7 +201,7 @@ Optional features transmit only after you turn them on:
   ports, browse Bonjour, look up DNS, and request NetBIOS/SMB identity.
 - **Speed Test** measures latency, jitter, download and upload against
   Cloudflare's nearest edge. It adapts transfer size and stops early on slower
-  links, with a maximum of about 120 MB. Uploads are generated zero-filled test
+  links, with a maximum of about 120 MB. Uploads are generated random test
   bytes, never files, network names, labels or walkthroughs. Cloudflare can see
   the public IP and normal request metadata. It measures the Mac's current
   Internet path, so an active VPN or proxy is included; it is not the raw Wi-Fi

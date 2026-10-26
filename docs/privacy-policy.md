@@ -13,9 +13,9 @@ Everything the app shows is read from the Mac it is running on:
 - The state of the current Wi-Fi link, including signal strength, noise, channel,
   band, transmit rate, network name and access point identifier.
 - The assigned IP address, subnet, router, DNS servers and DHCP lease.
-- The kernel's existing ARP cache, which lists hosts this Mac has already
+- The kernel's existing ARP and IPv6 neighbour caches, which list hosts this Mac has already
   exchanged traffic with in the normal course of being connected. Nothing is
-  scanned or probed to produce it. The Observed Devices view displays these
+  scanned or probed to produce them. The Observed Devices view displays these
   existing entries, and stores nothing about a device unless you give that
   device a name, type or note.
 
@@ -65,7 +65,7 @@ only after you invoke them, and each is labelled where it appears:
   credentials, fetches no pages, and performs no vulnerability tests.
 - **Running an Internet speed test** sends requests to Cloudflare's nearest
   edge. The test downloads disposable data and uploads only generated
-  zero-filled bytes, up to about 120 MB in total. It does not send files,
+  random bytes, up to about 120 MB in total. It does not send files,
   network names, BSSIDs, saved labels, notes or walkthroughs. Cloudflare sees
   the public IP address and ordinary request metadata needed to serve the test.
 

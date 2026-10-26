@@ -37,6 +37,33 @@ enum SpeedTestMath {
         return sorted[index]
     }
 
+    /// Stop growing transfers once the next one would take longer than this.
+    static let transferBudget: TimeInterval = 12
+
+    /// Whether to try the next, larger transfer: not once a sizeable one has
+    /// run long enough to measure, nor when the next is unlikely to finish
+    /// within the budget at the rate `size` bytes just achieved.
+    static func shouldGrow(after elapsed: TimeInterval, size: Int, next: Int?) -> Bool {
+        guard let next, size > 0 else { return false }
+        if elapsed >= 1.5, size >= 5_000_000 { return false }
+        return elapsed * Double(next) / Double(size) <= transferBudget
+    }
+
+    /// Milliseconds Cloudflare reports spending on a request itself, from its
+    /// `Server-Timing` header ("cfSpeedEdge;dur=6, cfSpeedWorker;dur=27").
+    /// The largest is taken, since the phases may nest. Nil when absent.
+    static func serverMilliseconds(_ header: String?) -> Double? {
+        guard let header else { return nil }
+        let durations = header.split(separator: ",").compactMap { entry -> Double? in
+            let parts = entry.split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.first?.hasPrefix("cfSpeed") == true else { return nil }
+            return parts.dropFirst().first { $0.hasPrefix("dur=") }
+                .flatMap { Double($0.dropFirst(4)) }
+        }
+        guard let longest = durations.max(), longest.isFinite, longest >= 0 else { return nil }
+        return longest
+    }
+
     static func jitter(_ latencyValues: [Double]) -> Double {
         guard latencyValues.count > 1 else { return 0 }
         let differences = zip(latencyValues, latencyValues.dropFirst()).map { abs($1 - $0) }

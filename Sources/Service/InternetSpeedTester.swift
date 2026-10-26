@@ -103,6 +103,19 @@ private enum SpeedTestFailure: LocalizedError {
 }
 
 private enum SpeedTestEngine {
+    /// Monotonic seconds, so a clock change mid-test cannot skew a reading.
+    private static func now() -> TimeInterval {
+        Double(DispatchTime.now().uptimeNanoseconds) / 1_000_000_000
+    }
+
+    /// A timeout or refusal after at least one good sample ends that phase
+    /// rather than the whole test, so slow links still get a result.
+    private static func isRecoverable(_ error: Error) -> Bool {
+        if (error as? URLError)?.code == .timedOut { return true }
+        if case .server = error as? SpeedTestFailure { return true }
+        return false
+    }
+
     private struct ThroughputSample {
         var mbps: Double
         var duration: TimeInterval
@@ -122,34 +135,46 @@ private enum SpeedTestEngine {
 
         var edgeLocation: String?
         var latencyValues: [Double] = []
-        for index in 0..<8 {
+        for index in 0..<9 {
             try Task.checkCancellation()
             await update(SpeedTestUpdate(stage: "Measuring latency…", progress: 0.02 + Double(index) * 0.012,
-                                         latencyMS: latencyValues.isEmpty ? nil : SpeedTestMath.median(latencyValues),
+                                         latencyMS: latencyValues.count < 2 ? nil : SpeedTestMath.median(Array(latencyValues.dropFirst())),
                                          downloadMbps: nil, uploadMbps: nil))
             let request = try downloadRequest(bytes: 0)
-            let started = Date()
+            let started = now()
             let (_, response) = try await session.data(for: request)
-            let elapsed = Date().timeIntervalSince(started) * 1_000
+            let elapsed = (now() - started) * 1_000
             let http = try validate(response)
             edgeLocation = edgeLocation ?? edgeCode(http)
-            latencyValues.append(elapsed)
+            // Time Cloudflare spent serving the request is not network latency.
+            let server = SpeedTestMath.serverMilliseconds(http.value(forHTTPHeaderField: "Server-Timing")) ?? 0
+            latencyValues.append(max(elapsed - server, 0))
         }
-        let latency = SpeedTestMath.median(latencyValues)
-        let jitter = SpeedTestMath.jitter(latencyValues)
+        // The first request also opens the connection and negotiates TLS, so
+        // it is a warm-up rather than a latency sample.
+        let settled = Array(latencyValues.dropFirst())
+        let latency = SpeedTestMath.median(settled)
+        let jitter = SpeedTestMath.jitter(settled)
         await update(SpeedTestUpdate(stage: "Measuring download…", progress: 0.14,
                                      latencyMS: latency, downloadMbps: nil, uploadMbps: nil))
 
-        let downloadSizes = [1_000_000, 5_000_000, 15_000_000, 50_000_000]
+        // Cloudflare's endpoint refuses some sizes (12 and 15 MB return 403),
+        // so these are sizes its own speed test requests.
+        let downloadSizes = [1_000_000, 10_000_000, 25_000_000, 50_000_000]
         var downloadSamples: [ThroughputSample] = []
         var downloaded: Int64 = 0
         for (index, size) in downloadSizes.enumerated() {
             try Task.checkCancellation()
             let request = try downloadRequest(bytes: size)
-            let started = Date()
-            let (data, response) = try await session.data(for: request)
-            let elapsed = Date().timeIntervalSince(started)
-            let http = try validate(response)
+            let started = now()
+            let data: Data, http: HTTPURLResponse
+            do {
+                let (body, response) = try await session.data(for: request)
+                (data, http) = (body, try validate(response))
+            } catch where isRecoverable(error) && !downloadSamples.isEmpty {
+                break
+            }
+            let elapsed = now() - started
             edgeLocation = edgeLocation ?? edgeCode(http)
             guard !data.isEmpty else { throw SpeedTestFailure.emptyTransfer }
             downloaded += Int64(data.count)
@@ -161,28 +186,37 @@ private enum SpeedTestEngine {
             await update(SpeedTestUpdate(stage: "Measuring download…",
                                          progress: 0.18 + Double(index + 1) / Double(downloadSizes.count) * 0.38,
                                          latencyMS: latency, downloadMbps: current, uploadMbps: nil))
-            if elapsed >= 1.5, size >= 5_000_000 { break }
+            let next = downloadSizes.indices.contains(index + 1) ? downloadSizes[index + 1] : nil
+            if !SpeedTestMath.shouldGrow(after: elapsed, size: size, next: next) { break }
         }
         guard !downloadSamples.isEmpty else { throw SpeedTestFailure.noMeasurement }
         let download = representative(downloadSamples)
 
         await update(SpeedTestUpdate(stage: "Measuring upload…", progress: 0.61,
                                      latencyMS: latency, downloadMbps: download, uploadMbps: nil))
-        let uploadSizes = [1_000_000, 5_000_000, 15_000_000, 25_000_000]
+        let uploadSizes = [1_000_000, 5_000_000, 10_000_000, 20_000_000]
         var uploadSamples: [ThroughputSample] = []
         var uploaded: Int64 = 0
         for (index, size) in uploadSizes.enumerated() {
             try Task.checkCancellation()
-            let payload = Data(repeating: 0, count: size)
+            // Random bytes, because a compressing proxy or VPN would make
+            // zeros look far faster than the link really is.
+            var payload = Data(count: size)
+            payload.withUnsafeMutableBytes { arc4random_buf($0.baseAddress, $0.count) }
             var request = URLRequest(url: URL(string: "https://speed.cloudflare.com/__up")!)
             request.httpMethod = "POST"
             request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
             request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
             request.setValue(String(size), forHTTPHeaderField: "Content-Length")
-            let started = Date()
-            let (_, response) = try await session.upload(for: request, from: payload)
-            let elapsed = Date().timeIntervalSince(started)
-            let http = try validate(response)
+            let started = now()
+            let http: HTTPURLResponse
+            do {
+                let (_, response) = try await session.upload(for: request, from: payload)
+                http = try validate(response)
+            } catch where isRecoverable(error) && !uploadSamples.isEmpty {
+                break
+            }
+            let elapsed = now() - started
             edgeLocation = edgeLocation ?? edgeCode(http)
             uploaded += Int64(size)
             let sample = ThroughputSample(
@@ -193,7 +227,8 @@ private enum SpeedTestEngine {
             await update(SpeedTestUpdate(stage: "Measuring upload…",
                                          progress: 0.64 + Double(index + 1) / Double(uploadSizes.count) * 0.31,
                                          latencyMS: latency, downloadMbps: download, uploadMbps: current))
-            if elapsed >= 1.5, size >= 5_000_000 { break }
+            let next = uploadSizes.indices.contains(index + 1) ? uploadSizes[index + 1] : nil
+            if !SpeedTestMath.shouldGrow(after: elapsed, size: size, next: next) { break }
         }
         guard !uploadSamples.isEmpty else { throw SpeedTestFailure.noMeasurement }
         let upload = representative(uploadSamples)

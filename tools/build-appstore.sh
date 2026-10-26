@@ -107,6 +107,7 @@ swiftc \
     -framework CoreWLAN \
     -framework CoreLocation \
     -framework SystemConfiguration \
+    -framework Network \
     -o "${BUNDLE}/Contents/MacOS/${BINARY}" \
     "${SOURCE_FILES[@]}"
 

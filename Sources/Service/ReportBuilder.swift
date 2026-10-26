@@ -238,7 +238,7 @@ enum ReportBuilder {
             ? "# Source,IPv4 and IPv6 neighbour caches plus an operator-approved active IPv4 range scan and optional TCP service checks."
             : "# Source,Passive read of this Mac's neighbour caches (IPv4 and IPv6). No address was scanned or swept.")
         lines.append(asked
-            ? "# Discovery,Some rows include operator-requested active findings such as published names DNS names response time or common TCP services."
+            ? "# Discovery,Some rows include operator-requested active findings such as published names; DNS names; response times; or common TCP services."
             : "# Discovery,None. Nothing was asked of any device.")
         lines.append("# Suggested Type,Inferred from the manufacturer only, never measured.")
         lines.append("Name,Role,Type,Suggested Type,Primary IP Address,IPv6 Addresses,MAC Address,Address Type,Manufacturer,Advertised Name,Model,Services,DNS Name,SMB Name,SMB Domain,Open TCP Ports,ICMP Ping ms,Fastest Response ms,Last Active Scan,Last Active Response,Asked,Status,First Seen,Last Seen,Notes")

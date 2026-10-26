@@ -28,7 +28,7 @@ struct SpeedTestView: View {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "arrow.up.arrow.down.circle.fill")
                         .foregroundStyle(.orange)
-                    Text("A test transfers up to about 120 MB. Download data is discarded; upload data is generated zero-filled bytes—not your files. Cloudflare can see your public IP and normal request metadata. No SSID, BSSID, labels, notes, or walkthroughs are sent.")
+                    Text("A test transfers up to about 120 MB. Download data is discarded; upload data is generated random bytes—not your files. Cloudflare can see your public IP and normal request metadata. No SSID, BSSID, labels, notes, or walkthroughs are sent.")
                         .font(.system(size: 10.5))
                         .fixedSize(horizontal: false, vertical: true)
                 }

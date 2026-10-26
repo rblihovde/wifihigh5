@@ -329,13 +329,13 @@ enum LANScanner {
                       cancelled: cancellation.isCancelled)
     }
 
-    private struct ProbeResult {
+    struct ProbeResult {
         var isOpen: Bool
         var reachedHost: Bool
         var milliseconds: Double
     }
 
-    private static func tcpProbe(address: String, port: UInt16,
+    static func tcpProbe(address: String, port: UInt16,
                                  timeout: TimeInterval) -> ProbeResult {
         guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
             return ProbeResult(isOpen: false, reachedHost: false, milliseconds: 0)
@@ -349,7 +349,9 @@ enum LANScanner {
             var result: (Bool, Bool)?
             switch state {
             case .ready: result = (true, true)
-            case .failed(let error):
+            // Network.framework reports a refused connection as .waiting and
+            // would retry it, not as .failed. A refusal still proves a host.
+            case .waiting(let error), .failed(let error):
                 if case .posix(let code) = error, code == .ECONNREFUSED || code == .ECONNRESET {
                     result = (false, true)
                 } else { result = (false, false) }
@@ -403,8 +405,16 @@ enum LANScanner {
         guard sent >= 0 else { return nil }
         var reply = [UInt8](repeating: 0, count: 1_024)
         while Date().timeIntervalSince(started) < timeout {
-            let count = recvfrom(fd, &reply, reply.count, 0, nil, nil)
+            var source = sockaddr_in()
+            var sourceLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let count = withUnsafeMutablePointer(to: &source) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    recvfrom(fd, &reply, reply.count, 0, $0, &sourceLength)
+                }
+            }
             guard count > 0 else { return nil }
+            // Only the probed host's own echo reply counts as proof of life.
+            guard source.sin_addr.s_addr == address.sin_addr.s_addr else { continue }
             var offset = 0
             if count >= 20, reply[0] >> 4 == 4 { offset = Int(reply[0] & 0x0F) * 4 }
             guard count >= offset + 8 else { continue }

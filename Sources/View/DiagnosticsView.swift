@@ -138,7 +138,7 @@ struct DiagnosticsView: View {
                     "Identify can send Bonjour queries asking devices on this network to describe themselves.",
                     "Identify can send reverse DNS lookups for observed addresses to this network's name servers.",
                     "Scan LAN can scan the detected subnet or an IPv4 range you enter, ping hosts, check selected TCP ports, request DNS, Bonjour and Windows/SMB names, and solicit link-local IPv6 neighbors after confirmation.",
-                    "Speed Test downloads test data and uploads only generated zero-filled bytes to Cloudflare's edge after you press Start. Cloudflare can see the public IP and normal request metadata."
+                    "Speed Test downloads test data and uploads only generated random bytes to Cloudflare's edge after you press Start. Cloudflare can see the public IP and normal request metadata."
                 ], .orange, "exclamationmark")
 
                 Text("All active features are off until you switch them on, and each is labelled where it appears. LAN discovery and the two Identify options ask for confirmation first. The speed test has its data-use disclosure beside Start. None sends anything to the developer.")

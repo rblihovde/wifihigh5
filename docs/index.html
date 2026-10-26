@@ -55,9 +55,9 @@ you start transfers generated test traffic to Cloudflare as described below.</p>
   <li>The state of the current Wi-Fi link, including signal strength, noise,
       channel, band, transmit rate, network name and access point identifier.</li>
   <li>The assigned IP address, subnet, router, DNS servers and DHCP lease.</li>
-  <li>The kernel's existing ARP cache, which lists hosts this Mac has already
+  <li>The kernel's existing ARP and IPv6 neighbour caches, which list hosts this Mac has already
       exchanged traffic with in the normal course of being connected. Nothing is
-      scanned or probed to produce it. The Observed Devices view displays these
+      scanned or probed to produce them. The Observed Devices view displays these
       existing entries, and stores nothing about a device unless you give that
       device a name, type or note.</li>
 </ul>
@@ -109,7 +109,7 @@ appears:</p>
       vulnerability tests.</li>
   <li><strong>Running an Internet speed test</strong> sends requests to
       Cloudflare's nearest edge. It downloads disposable data and uploads only
-      generated zero-filled bytes, up to about 120 MB total. It sends no files,
+      generated random bytes, up to about 120 MB total. It sends no files,
       network names, BSSIDs, labels, notes or walkthroughs. Cloudflare sees the
       public IP and ordinary request metadata needed to serve the test.</li>
 </ul>

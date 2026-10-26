@@ -472,7 +472,7 @@ enum HelpContent {
                 "The gateway test sends ICMP echo to your own default router and to nothing else. It is off by default.",
                 "Identify can ask devices on the network to describe themselves over Bonjour, and can look addresses up in this network's DNS. Each asks for confirmation first and says what it sends and where it may be logged.",
                 "Scan LAN can actively find IPv4 hosts in the detected subnet or a range you enter, check selected TCP ports, and request DNS, Bonjour and Windows/SMB names. It asks for confirmation first and never sends credentials or vulnerability probes.",
-                "Speed Test is also off until you press Start. It transfers up to about 120 MB with Cloudflare's nearest edge: downloaded test data and generated zero-filled upload bytes, never your files or saved Wi-Fi details. Cloudflare can see the public IP and ordinary request metadata.",
+                "Speed Test is also off until you press Start. It transfers up to about 120 MB with Cloudflare's nearest edge: downloaded test data and generated random upload bytes, never your files or saved Wi-Fi details. Cloudflare can see the public IP and ordinary request metadata.",
                 "The Diagnostics tab states all of this inside the app, so you can show it to whoever asks what you are running."
             ]
         ),

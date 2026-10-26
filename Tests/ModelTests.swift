@@ -162,6 +162,17 @@ private func testSpeedTestMath() {
     expectEqual("jitter averages adjacent changes",
                 SpeedTestMath.jitter([10, 14, 11]), 3.5)
     expectEqual("one latency point has no jitter", SpeedTestMath.jitter([10]), 0)
+    expect("a fast small transfer grows", SpeedTestMath.shouldGrow(after: 0.1, size: 1_000_000, next: 5_000_000))
+    expect("a sizeable transfer that ran long enough stops",
+           !SpeedTestMath.shouldGrow(after: 2, size: 5_000_000, next: 15_000_000))
+    expect("a slow link does not attempt a transfer that would time out",
+           !SpeedTestMath.shouldGrow(after: 4, size: 1_000_000, next: 5_000_000))
+    expectEqual("server time takes the longest Cloudflare phase",
+                SpeedTestMath.serverMilliseconds("cfSpeedEdge;dur=6, cfSpeedWorker;dur=27, cfL4;desc=\"?rtt=8884\""), 27)
+    expect("missing server timing is nil", SpeedTestMath.serverMilliseconds(nil) == nil)
+    expect("unrelated server timing is ignored", SpeedTestMath.serverMilliseconds("db;dur=53") == nil)
+    expect("a malformed duration is ignored", SpeedTestMath.serverMilliseconds("cfSpeedEdge;dur=abc") == nil)
+    expect("the last size does not grow", !SpeedTestMath.shouldGrow(after: 0.1, size: 1_000_000, next: nil))
 }
 
 // MARK: Formatting
@@ -1204,6 +1215,11 @@ private func testLANScanTargets() {
            (try? LANScanner.customPlan("8.8.8.0/24", excluding: nil))?.includesPublicAddresses == true)
     expect("a range spanning two private blocks is called public",
            (try? LANScanner.customPlan("10.0.0.0/7", excluding: nil))?.includesPublicAddresses == true)
+
+    // Network.framework reports a refused port as .waiting, not .failed. A
+    // refusal must still count as a live host. Nothing listens on port 1.
+    let refused = LANScanner.tcpProbe(address: "127.0.0.1", port: 1, timeout: 1)
+    expect("a refused TCP port proves the host is there", refused.reachedHost && !refused.isOpen)
 
     expect("a non-contiguous mask is rejected",
            LANScanner.targetPlan(localAddress: "192.168.1.2", mask: "255.0.255.0") == nil)
